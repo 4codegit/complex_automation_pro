@@ -1,4 +1,4 @@
-# AutoPro: product plan and technical specification
+# CAP: product plan and technical specification
 
 ## 1. Purpose and success boundary
 

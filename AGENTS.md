@@ -1,4 +1,4 @@
-# AutoPro — AGENTS.md
+# CAP — AGENTS.md
 
 Проект: платформа мониторинга обогатительной фабрики (Go backend + TS frontend + edge gateway).
 

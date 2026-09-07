@@ -1,6 +1,6 @@
-# AutoPro
+# Complex Automation Pro (CAP)
 
-AutoPro is a vendor-neutral monitoring platform for mineral-processing operations,
+CAP is a vendor-neutral monitoring platform for mineral-processing operations,
 covering the full flowsheet from ore receiving through crushing, grinding,
 flotation, thickening, filtration, drying and concentrate dispatch.
 

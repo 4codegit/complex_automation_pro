@@ -2,19 +2,19 @@
 
 ## Current boundary
 
-AutoPro is currently a development monitoring system. It may collect, validate, display, archive and alert on telemetry. It must not issue direct commands to PLCs, DCSs, variable-speed drives, valves, pumps, crushers, filters, dryers, or safety systems.
+CAP is currently a development monitoring system. It may collect, validate, display, archive and alert on telemetry. It must not issue direct commands to PLCs, DCSs, variable-speed drives, valves, pumps, crushers, filters, dryers, or safety systems.
 
-The process safety layer, interlocks, emergency shutdown, and local control remain independent of AutoPro. A loss, defect, or compromise of AutoPro must not stop or destabilize production.
+The process safety layer, interlocks, emergency shutdown, and local control remain independent of CAP. A loss, defect, or compromise of CAP must not stop or destabilize production.
 
 ## Reference model
 
 Use the ISA-95 logical separation:
 
 - Levels 0-2: physical process, sensors, actuators, PLC/DCS and protection systems.
-- Level 3: AutoPro edge collection, historian, monitoring, alarming, reporting and operator-facing applications.
+- Level 3: CAP edge collection, historian, monitoring, alarming, reporting and operator-facing applications.
 - Level 4: ERP, laboratory systems, planning and business analytics.
 
-AutoPro initially belongs at Level 3. It receives a read-only or brokered data flow from the OT network. Any future control capability requires a separately approved design, hazard study, vendor/plant engineering review, access control, audit trail, test environment and formal commissioning.
+CAP initially belongs at Level 3. It receives a read-only or brokered data flow from the OT network. Any future control capability requires a separately approved design, hazard study, vendor/plant engineering review, access control, audit trail, test environment and formal commissioning.
 
 ## Target components
 
@@ -32,7 +32,7 @@ Decision (2026-07-31, director review): **the platform is Go.** Rust is excluded
 
 Rationale:
 
-- AutoPro is Level 3 monitoring (no control loops, no deterministic-latency requirement; real-time is held by PLC/DCS). The strengths of Rust (predictable latency, no GC, max performance, memory safety without GC) provide no measurable benefit here, while its cost (development speed, talent availability, compile time, younger OPC UA ecosystem) is real for a small team shipping a sellable product.
+- CAP is Level 3 monitoring (no control loops, no deterministic-latency requirement; real-time is held by PLC/DCS). The strengths of Rust (predictable latency, no GC, max performance, memory safety without GC) provide no measurable benefit here, while its cost (development speed, talent availability, compile time, younger OPC UA ecosystem) is real for a small team shipping a sellable product.
 - One language for the whole platform: the edge gateway and the ingestion server share a single Go module for the canonical telemetry schema, so the wire contract cannot drift.
 - One static binary per service, no Python runtime/venv/dependencies on customer OT servers — a decisive deployment advantage for a product installed on multiple plants.
 - Go headroom (~100k+ messages/s) far exceeds the target (~5k messages/s), so the hot path is not a future risk.
@@ -90,7 +90,7 @@ Why an interface and not a plugin system:
 
 Read-only Level 3 invariant: `Source` exposes **read** operations only.
 `Poll`/subscriptions MUST NOT provide a write path to the OT asset; control
-remains outside AutoPro. A future write capability, if ever approved, would be
+remains outside CAP. A future write capability, if ever approved, would be
 a separate, audited interface behind a different permission boundary.
 
 ### OPC UA driver (Block B1) — design
@@ -107,9 +107,9 @@ Two collection modes, configurable per tag:
    This keeps the response-time guarantees of OPC UA subscriptions while
    staying inside the existing poll-tick loop.
 
-Quality mapping (OPC UA `StatusCode` → AutoPro canonical):
+Quality mapping (OPC UA `StatusCode` → CAP canonical):
 
-| OPC UA status                     | AutoPro quality   |
+| OPC UA status                     | CAP quality   |
 |-----------------------------------|-------------------|
 | `Good` (0x00000000)               | `good`            |
 | `Uncertain*` (0x40xxxxxx)         | `uncertain`       |
@@ -148,7 +148,7 @@ OPCUA_POLICY=Basic256Sha256         # auto | None | Aes128/Aes256Sha256RsaPss
 OPCUA_AUTH=anonymous                # anonymous | username
 OPCUA_USERNAME=...                  # when username
 OPCUA_PASSWORD=...                  # when username (read once at start)
-OPCUA_CERT_DIR=/var/lib/autopro/certs # x509 client cert/key per gateway
+OPCUA_CERT_DIR=/var/lib/cap/certs # x509 client cert/key per gateway
 TAGS=asset.tag.metric:unit|node=2;s=Tag.PV, ...
 ```
 
@@ -168,7 +168,7 @@ work referenced from this ADR.
 Status: accepted. Scope: `internal/store/audit.go`, `internal/api/audit_helper.go`,
 `internal/api/handlers_audit.go`.
 
-AutoPro Level 3 boundary requires an immutable audit trail "who changed what,
+CAP Level 3 boundary requires an immutable audit trail "who changed what,
 when" for every platform mutation. Full OIDC/JWT auth is a downstream ADR; this
 one ships the **record side** first because it is valuable alone and because
 retrofitting audit later requires either replaying history or accepting a gap
