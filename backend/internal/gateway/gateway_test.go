@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"autopro/internal/schema"
+	"cap/internal/schema"
 )
 
 func TestBufferPersistsAndDrains(t *testing.T) {

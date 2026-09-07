@@ -3,7 +3,7 @@ package simulator
 import (
 	"testing"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 func ptr(f float64) *float64 { return &f }

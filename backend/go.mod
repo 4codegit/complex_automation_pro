@@ -1,4 +1,4 @@
-module autopro
+module cap
 
 go 1.25.12
 

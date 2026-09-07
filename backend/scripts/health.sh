@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AutoPro health check (Go server on :8000)
+# CAP health check (Go server on :8000)
 set -euo pipefail
 
 echo "==> Server (http://127.0.0.1:8000)"

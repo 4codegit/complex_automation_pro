@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"autopro/internal/web"
+	"cap/internal/web"
 )
 
 // Routes builds the HTTP handler tree. It uses the standard library mux with

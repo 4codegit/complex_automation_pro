@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"autopro/internal/schema"
+	"cap/internal/schema"
 )
 
 // Sender delivers buffered messages to the server as batches. Delivery is

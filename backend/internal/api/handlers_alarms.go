@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // ActiveAlarms returns alarms in an active lifecycle state, newest first.

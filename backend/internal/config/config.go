@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Settings holds all runtime configuration for AutoPro.
+// Settings holds all runtime configuration for CAP.
 type Settings struct {
 	Environment   string
 	HTTPAddr      string
@@ -33,7 +33,7 @@ func Load(envPath string) (*Settings, error) {
 	s := &Settings{
 		Environment:   get("ENVIRONMENT", "development"),
 		HTTPAddr:      get("HTTP_ADDR", "127.0.0.1:8000"),
-		DBURL:         get("DB_URL", "sqlite://./autopro.db"),
+		DBURL:         get("DB_URL", "sqlite://./cap.db"),
 		SimulatorOn:   getBool("SIMULATOR_ENABLED", true),
 		SimInterval:   getDuration("SIMULATOR_INTERVAL", 1*time.Second),
 		EmergencySec:  getDuration("EMERGENCY_DURATION", 15*time.Second),
@@ -41,7 +41,7 @@ func Load(envPath string) (*Settings, error) {
 		MaxBatchSize:  getInt("INGEST_MAX_BATCH", 500),
 		DefaultLimit:  getInt("DEFAULT_LIMIT", 100),
 		MaxLimit:      getInt("MAX_LIMIT", 1000),
-		DBPathDefault: "autopro.db",
+		DBPathDefault: "cap.db",
 	}
 	if err := s.validate(); err != nil {
 		return nil, err

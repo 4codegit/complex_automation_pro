@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // permissionRequired maps a request method+path pattern to the permission a

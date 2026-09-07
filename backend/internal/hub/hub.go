@@ -1,6 +1,6 @@
 // Package hub implements an in-process publish/subscribe fan-out for live
 // dashboard events. It removes the need for Redis in single-node deployments;
-// a message broker can replace it when AutoPro scales to multiple nodes.
+// a message broker can replace it when CAP scales to multiple nodes.
 package hub
 
 import "sync"

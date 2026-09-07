@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // handlers_rbac.go — role & assignment management endpoints, exposed under

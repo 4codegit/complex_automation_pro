@@ -1,5 +1,5 @@
 // Package web embeds the built dashboard (index.html + assets) so a single
-// AutoPro server process serves both the API and the UI on the same origin.
+// CAP server process serves both the API and the UI on the same origin.
 //
 // Regenerate the embedded bundle from the frontend after any change:
 //

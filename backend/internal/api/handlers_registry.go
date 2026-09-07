@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // handlers_registry.go — CRUD endpoints for the admin-managed asset & tag

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"autopro/internal/schema"
+	"cap/internal/schema"
 )
 
 // Source emits canonical telemetry messages for a gateway. Implementations:
@@ -13,7 +13,7 @@ import (
 //
 // Read-only invariant (Level 3, ISA-95): a Source exposes read operations only
 // against the OT asset. Implementations MUST NOT provide a write path; control
-// remains outside AutoPro.
+// remains outside CAP.
 type Source interface {
 	// Name returns the driver id for logs/metrics, e.g. "simulated", "opcua".
 	Name() string

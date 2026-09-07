@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // ListProfiles returns all ore profiles, newest first.

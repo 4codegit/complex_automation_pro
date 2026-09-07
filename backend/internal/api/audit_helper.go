@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // actorFromRequest resolves the mutating user for the audit trail. Production

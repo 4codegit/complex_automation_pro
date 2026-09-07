@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // getObject decodes a JSON response into a single object.

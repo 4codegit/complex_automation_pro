@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // handlers_audit.go — audit trail read endpoint and alarm rationalisation

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"autopro/internal/config"
-	"autopro/internal/hub"
-	"autopro/internal/simulator"
-	"autopro/internal/store"
+	"cap/internal/config"
+	"cap/internal/hub"
+	"cap/internal/simulator"
+	"cap/internal/store"
 )
 
 // freshDB opens an in-memory SQLite db, runs migrations and returns it. Errors

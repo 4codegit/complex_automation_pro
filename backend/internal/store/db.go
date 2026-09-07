@@ -12,7 +12,7 @@ import (
 )
 
 // Open opens a database using the driver selected by the DSN prefix.
-//   - sqlite://./autopro.db  -> pure-Go SQLite (development, demo, tests)
+//   - sqlite://./cap.db  -> pure-Go SQLite (development, demo, tests)
 //   - postgres://...         -> PostgreSQL (production)
 //
 // It configures sane connection limits and verifies connectivity.

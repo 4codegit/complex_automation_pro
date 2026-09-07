@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"autopro/internal/store"
+	"cap/internal/store"
 )
 
 // ExportReadingsCSV handles GET /api/v1/reports/readings/csv

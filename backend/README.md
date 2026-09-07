@@ -1,4 +1,4 @@
-# AutoPro Go platform
+# CAP Go platform
 
 The production platform is written in Go (decision in `../ARCHITECTURE_DECISIONS.md`):
 one language for the edge gateway and the server, one static binary per service,
@@ -90,7 +90,7 @@ Contract tests in `internal/api` re-express the canonical contract tests
 
 `DB_URL` selects the driver:
 
-- `sqlite://./autopro.db` — pure-Go SQLite (default, demo, tests). No CGO, no services.
+- `sqlite://./cap.db` — pure-Go SQLite (default, demo, tests). No CGO, no services.
 - `postgres://user:pass@host:5432/dbname` — PostgreSQL (production). Same code path.
 
 Migrations are portable DDL tracked in `schema_migrations`.

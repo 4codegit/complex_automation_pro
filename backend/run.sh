@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# AutoPro one-command demo: rebuild embedded dashboard, build binaries,
+# CAP one-command demo: rebuild embedded dashboard, build binaries,
 # start server + gateway, open health checks.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-RUN="${TMPDIR:-/tmp}/autopro-run"
+RUN="${TMPDIR:-/tmp}/cap-run"
 mkdir -p "$RUN"
 
 echo "==> Building embedded dashboard"

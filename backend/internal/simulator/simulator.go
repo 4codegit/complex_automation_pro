@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"autopro/internal/hub"
-	"autopro/internal/schema"
-	"autopro/internal/store"
+	"cap/internal/hub"
+	"cap/internal/schema"
+	"cap/internal/store"
 )
 
 // simMetric holds the demo operating point, noise and threshold envelope for a

@@ -1,24 +1,24 @@
 [Unit]
-Description=AutoPro Monitoring Server
-Documentation=https://github.com/autopro/autopro
+Description=CAP Monitoring Server
+Documentation=https://github.com/4codegit/complex_automation_pro
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=autopro
-Group=autopro
-WorkingDirectory=/opt/autopro
-Environment=DB_URL=sqlite:///var/lib/autopro/autopro.db
+User=cap
+Group=cap
+WorkingDirectory=/opt/cap
+Environment=DB_URL=sqlite:///var/lib/cap/cap.db
 Environment=HTTP_ADDR=0.0.0.0:8000
 Environment=SIMULATOR_ENABLED=true
 Environment=STALENESS_SECONDS=60s
-ExecStart=/opt/autopro/bin/autopro-server
+ExecStart=/opt/cap/bin/cap-server
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=autopro-server
+SyslogIdentifier=cap-server
 LimitNOFILE=65536
 NoNewPrivileges=true
 PrivateTmp=true

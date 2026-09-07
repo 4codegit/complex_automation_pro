@@ -11,14 +11,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	"autopro/internal/gateway"
+	"cap/internal/gateway"
 )
 
 var version = "edge-0.1.0"
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
-	log.SetPrefix("[autopro] ")
+	log.SetPrefix("[cap] ")
 
 	cfg, err := gateway.LoadConfig(".env")
 	if err != nil {

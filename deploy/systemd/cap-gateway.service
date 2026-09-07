@@ -1,28 +1,28 @@
 [Unit]
-Description=AutoPro Edge Gateway
-Documentation=https://github.com/autopro/autopro
-After=network-online.target autopro-server.service
+Description=CAP Edge Gateway
+Documentation=https://github.com/4codegit/complex_automation_pro
+After=network-online.target cap-server.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=autopro
-Group=autopro
-WorkingDirectory=/opt/autopro
+User=cap
+Group=cap
+WorkingDirectory=/opt/cap
 Environment=GATEWAY_ID=gw-crushing-01
 Environment=SERVER_URL=http://127.0.0.1:8000
-Environment=GATEWAY_BUFFER_DB=/var/lib/autopro/gateway-buffer.db
+Environment=GATEWAY_BUFFER_DB=/var/lib/cap/gateway-buffer.db
 Environment=POLL_INTERVAL=1s
 Environment=PUSH_INTERVAL=1s
 Environment=PULSE_INTERVAL=5s
 Environment=SOURCE_DRIVER=simulated
 Environment=TAGS=plant-a.crushing.particle_size:mm,plant-a.crushing.pulp_density:g/cm3,plant-a.flotation.ph_level:pH,plant-a.flotation.reagent_dosage:mL/min,plant-a.dewatering.cake_moisture:%,plant-a.dewatering.dryer_temperature:C,plant-a.concentrate.tonnage_weight:t/h,plant-a.concentrate.final_moisture:%
-ExecStart=/opt/autopro/bin/autopro-gateway
+ExecStart=/opt/cap/bin/cap-gateway
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=autopro-gateway
+SyslogIdentifier=cap-gateway
 LimitNOFILE=65536
 NoNewPrivileges=true
 PrivateTmp=true

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"autopro/internal/hub"
-	"autopro/internal/store"
+	"cap/internal/hub"
+	"cap/internal/store"
 )
 
 // TestTickBroadcastsDirectly checks the sim's hub fan-out with a direct hub

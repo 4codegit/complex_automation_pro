@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"autopro/internal/schema"
-	"autopro/internal/store"
+	"cap/internal/schema"
+	"cap/internal/store"
 )
 
 // IngestGatewayEvent accepts the edge gateway heartbeat (pulse/online/offline)

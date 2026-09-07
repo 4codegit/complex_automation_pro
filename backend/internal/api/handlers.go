@@ -17,11 +17,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"autopro/internal/config"
-	"autopro/internal/hub"
-	"autopro/internal/schema"
-	"autopro/internal/simulator"
-	"autopro/internal/store"
+	"cap/internal/config"
+	"cap/internal/hub"
+	"cap/internal/schema"
+	"cap/internal/simulator"
+	"cap/internal/store"
 )
 
 // Server wires handlers to shared dependencies.

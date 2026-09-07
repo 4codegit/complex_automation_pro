@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"autopro/internal/api"
-	"autopro/internal/config"
-	"autopro/internal/hub"
-	"autopro/internal/simulator"
-	"autopro/internal/store"
+	"cap/internal/api"
+	"cap/internal/config"
+	"cap/internal/hub"
+	"cap/internal/simulator"
+	"cap/internal/store"
 )
 
 type testEnv struct {

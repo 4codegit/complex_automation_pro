@@ -8,7 +8,7 @@ import (
 	mathrand "math/rand/v2"
 	"time"
 
-	"autopro/internal/schema"
+	"cap/internal/schema"
 )
 
 // Sensor polls local instruments and emits canonical messages. The simulated

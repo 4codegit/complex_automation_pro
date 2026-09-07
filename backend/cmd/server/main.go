@@ -1,4 +1,4 @@
-// Command server runs the AutoPro monitoring API: push ingestion, pull queries,
+// Command server runs the CAP monitoring API: push ingestion, pull queries,
 // registry, alarms, live WebSocket fan-out and the development simulator.
 package main
 
@@ -12,16 +12,16 @@ import (
 	"syscall"
 	"time"
 
-	"autopro/internal/api"
-	"autopro/internal/config"
-	"autopro/internal/hub"
-	"autopro/internal/simulator"
-	"autopro/internal/store"
+	"cap/internal/api"
+	"cap/internal/config"
+	"cap/internal/hub"
+	"cap/internal/simulator"
+	"cap/internal/store"
 )
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
-	log.SetPrefix("[autopro] ")
+	log.SetPrefix("[cap] ")
 
 	cfg, err := config.Load(".env")
 	if err != nil {
@@ -75,7 +75,7 @@ func main() {
 		_ = httpSrv.Shutdown(shCtx)
 	}()
 
-	log.Printf("AutoPro listening on http://%s (db=%s)", cfg.HTTPAddr, cfg.DBURL)
+	log.Printf("CAP listening on http://%s (db=%s)", cfg.HTTPAddr, cfg.DBURL)
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server: %v", err)
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/ua"
 
-	"autopro/internal/schema"
+	"cap/internal/schema"
 )
 
 // opcuaSource is a read-only OPC UA poll driver. It opens one session to the
@@ -317,7 +317,7 @@ func (s *opcuaSource) offlineAll(now time.Time, reason string) []schema.Telemetr
 	return out
 }
 
-// mapQuality converts an OPC UA StatusCode to the canonical AutoPro quality.
+// mapQuality converts an OPC UA StatusCode to the canonical CAP quality.
 // See ARCHITECTURE_DECISIONS.md ADR-001 for the mapping table.
 func mapQuality(st ua.StatusCode) string {
 	switch {

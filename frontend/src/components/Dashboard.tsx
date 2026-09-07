@@ -41,7 +41,7 @@ const Dashboard: React.FC = () => {
           <div className="flex items-center gap-3">
             <span className="text-3xl">⚙️</span>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">AutoPro</h1>
+              <h1 className="text-xl font-bold tracking-tight">CAP</h1>
               <p className="text-xs text-gray-500">Панель мониторинга обогатительной фабрики</p>
             </div>
           </div>
@@ -135,7 +135,7 @@ const Dashboard: React.FC = () => {
 
       {/* Footer */}
       <footer className="border-b border-gray-800 mt-8 py-4 text-center text-xs text-gray-600">
-        AutoPro MVP — Система мониторинга обогатительной фабрики
+        CAP MVP — Система мониторинга обогатительной фабрики
         {offlineGateways.length > 0 && (
           <span className="ml-2 text-red-500">· шлюзы офлайн: {offlineGateways.map((g) => g.id).join(', ')}</span>
         )}

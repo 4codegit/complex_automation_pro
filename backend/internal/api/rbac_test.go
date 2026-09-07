@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"autopro/internal/config"
-	"autopro/internal/hub"
-	"autopro/internal/simulator"
-	"autopro/internal/store"
+	"cap/internal/config"
+	"cap/internal/hub"
+	"cap/internal/simulator"
+	"cap/internal/store"
 )
 
 // newRBACTestServer builds an isolated server with seeded roles for the

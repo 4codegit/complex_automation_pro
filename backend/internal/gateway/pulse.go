@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"autopro/internal/schema"
+	"cap/internal/schema"
 )
 
 // Pulse sends the heartbeat (TZ S3: "пульс gateway_events каждые N секунд").

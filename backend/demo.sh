@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AutoPro demo: edge gateway store-and-forward (TZ S3).
+# CAP demo: edge gateway store-and-forward (TZ S3).
 #
 # Scenario: server up -> gateway streams -> server DOWN -> gateway buffers in
 # local SQLite -> server back -> gateway backfills, queue drains.
@@ -8,10 +8,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-WORK="$(mktemp -d /tmp/opencode/autopro-demo.XXXXXX)"
+WORK="$(mktemp -d /tmp/opencode/cap-demo.XXXXXX)"
 PORT=18099
-SERVER_BIN="$WORK/autopro-server"
-GATEWAY_BIN="$WORK/autopro-gateway"
+SERVER_BIN="$WORK/cap-server"
+GATEWAY_BIN="$WORK/cap-gateway"
 SERVER_LOG="$WORK/server.log"
 GATEWAY_LOG="$WORK/gateway.log"
 
