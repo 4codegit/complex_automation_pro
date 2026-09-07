@@ -1,0 +1,43 @@
+# Generated frontend bundle (embedded into Go server)
+backend/internal/web/web/
+
+# Build artifacts
+build/
+dist/
+lib/
+lib64/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.code-workspace
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+logs/
+
+# Runtime / temp
+.run/
+*.tmp
+
+# Node
+node_modules/
+
+# Python
+.venv/
