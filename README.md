@@ -26,6 +26,9 @@ for the details.
 - [Development task specification (ТЗ)](TZ_DEVELOPMENT.md)
 - [Technical specification and delivery plan](TECHNICAL_SPECIFICATION.md)
 - [Architecture decisions and OT safety boundary](ARCHITECTURE_DECISIONS.md)
+- [Program description for patent registration (RU)](PATENT_DESCRIPTION.md)
+
+Licensed under the [MIT License](LICENSE).
 
 The simulator and monitoring dashboard are not authorised to control industrial
 equipment. Production deployment will be designed and approved as a dedicated
