@@ -66,7 +66,7 @@ introduced at the **source boundary**:
 
 ```go
 // Source emits canonical telemetry messages for a gateway.
-// Implementations: simulated Sensor, opcua.Source, (future) modbus, mqtt.
+// Implementations: simulated Sensor, opcua.Source, modbusSource, (future) mqtt.
 // Sources MUST be safe for concurrent use by exactly one Polling loop.
 type Source interface {
     // Name returns the driver id for logs/metrics, e.g. "opcua", "simulated".
@@ -158,10 +158,20 @@ existing demo envs keep working unchanged. The pipe `|` (not `=`) separates
 the unit from the node spec because OPC UA NodeIDs contain `=` (e.g.
 `ns=2;s=Sim.PV`) and `:` (e.g. opaque byte-string NodeIDs).
 
+Modbus TCP mode (B1.3, 2026-09-09): `SOURCE_DRIVER=modbus` activates a
+read-only `goburrow/modbus` driver (function codes 1–4 only; no write path
+exists in the code). Register specs reuse the same `TAGS` pipe syntax:
+`asset.tag.metric:unit|reg=<fc>:<addr>:<type>[:<scale>]` where `fc` is
+`hr|ir|c|di`, type is `bool|u16|i16|u32|i32|f32` (with an optional `sw`
+CDAB word-swap suffix) and scale is an optional multiplier. An unreachable
+device emits `quality=offline` gaps per tag — the historian records the
+outage instead of silence, and reconnects transparently when the device
+returns.
+
 Phasing: B1.1 ships the `Source` interface + simulated refactor + a
 `gopcua/opcua` poll-only driver behind `SOURCE_DRIVER=opcua`. Subscriptions
-land as B1.2 once the poll path is green in a lab. Modbus/MQTT remain future
-work referenced from this ADR.
+land as B1.2 once the poll path is green in a lab. B1.3 ships the modbus
+TCP driver above. MQTT remains future work referenced from this ADR.
 
 ## ADR-002: Audit trail before auth (2026-08-04)
 
