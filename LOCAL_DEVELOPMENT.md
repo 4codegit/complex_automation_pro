@@ -21,9 +21,24 @@ go run ./cmd/server        # http://127.0.0.1:8000
 - the dashboard (embedded SPA) at `/`;
 - the JSON API under `/api/v1`;
 - the WebSocket live feed at `/api/v1/ws`;
-- the development simulator (off unless `SIMULATOR_ENABLED=true`).
+- the development simulator (on by default; set `SIMULATOR_ENABLED=false`
+  when attaching real sources).
 
 Open `http://127.0.0.1:8000` in a browser.
+
+## Microservice mode (split deployment)
+
+The same code runs as independent services behind a single entry point:
+
+```bash
+cd backend
+scripts/services.sh start   # live → ingest/historian/alarms/profiles/
+                            # registry/identity → gateway-api on :8000
+scripts/services.sh stop    # stop everything
+```
+
+The dashboard, API contract and WebSocket behaviour are identical in both
+modes; `gateway-api` fronts the services on the same `:8000` address.
 
 ## Edge gateway (optional)
 
@@ -42,8 +57,10 @@ Environment variables (defaults in `.env.example`):
 | -------- | ----------- |
 | `DB_URL` | `sqlite://path.db` (default) or `postgres://...` |
 | `HTTP_ADDR` | listen address, default `127.0.0.1:8000` |
-| `SIMULATOR_ENABLED` | demo generator on/off; keep off when attaching real sources |
+| `SIMULATOR_ENABLED` | demo generator on/off (default on); keep off when attaching real sources |
 | `STALENESS_SECONDS` | mark telemetry as stale after this age |
+| `SOURCE_DRIVER` | gateway instrument driver: `simulated` (default), `opcua`, `modbus`, `sparkplug` |
+| `EVENT_SINKS` | comma-separated URLs receiving live events (ingest → live in split mode) |
 
 ## Frontend (only when changing the UI)
 

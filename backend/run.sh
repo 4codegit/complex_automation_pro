@@ -19,7 +19,7 @@ fuser -k 8000/tcp >/dev/null 2>&1 || true
 sleep 0.5
 rm -f "$RUN/app.db" "$RUN/app.db-wal" "$RUN/app.db-shm" "$RUN/gateway-buffer.db"*
 setsid nohup env DB_URL="sqlite://$RUN/app.db" HTTP_ADDR="127.0.0.1:8000" \
-  SIMULATOR_ENABLED=true SIM_INTERVAL=1s EMERGENCY_SECONDS=5s \
+  SIMULATOR_ENABLED=true SIMULATOR_INTERVAL=1s EMERGENCY_DURATION=5s \
   STALENESS_SECONDS=60s "$RUN/server" > "$RUN/server.log" 2>&1 &
 sleep 1.5
 
