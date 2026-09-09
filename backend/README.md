@@ -69,9 +69,9 @@ drive breach detection, and it maintains/clears alarm states automatically.
 
 `go run ./cmd/gateway` runs the edge collector:
 
-1. **Poll** local instruments (simulated sensor by default; the adapter
-   interface is where Modbus TCP / OPC UA / MQTT Sparkplug B plug in) and
-   normalize into the canonical contract.
+1. **Poll** local instruments (simulated sensor by default; `SOURCE_DRIVER`
+   selects `opcua` or `modbus` — both read-only, per-tag address specs in
+   `TAGS`) and normalize into the canonical contract.
 2. **Buffer** every message in a local SQLite/WAL file (`GATEWAY_BUFFER_DB`)
    — survives restarts, survives server outages.
 3. **Deliver** as `:batch` batches; the queue is drained only on server

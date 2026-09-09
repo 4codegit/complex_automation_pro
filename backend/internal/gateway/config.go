@@ -13,7 +13,8 @@ import (
 )
 
 // TagSpec is one local instrument the gateway polls. The OPC UA NodeID is
-// only used by the opcua driver; simulated/other drivers ignore it.
+// used by the opcua driver, the Modbus register spec by the modbus driver;
+// simulated/other drivers ignore both.
 type TagSpec struct {
 	TagID    string
 	AssetID  string
@@ -23,6 +24,8 @@ type TagSpec struct {
 	Min      float64
 	Max      float64
 	NodeID   string
+	// Modbus is the register spec "fc:addr:type[:scale]" (see modbus.go).
+	Modbus string
 }
 
 // Config holds the gateway runtime settings.
@@ -37,8 +40,13 @@ type Config struct {
 	Tags          []TagSpec
 
 	// Driver selects the Source implementation. "" or "simulated" keeps the
-	// demo sensor; "opcua" activates the OPC UA poll driver.
+	// demo sensor; "opcua" activates the OPC UA poll driver; "modbus" the
+	// Modbus TCP poll driver.
 	Driver string
+	// Modbus TCP driver settings (ignored by other drivers).
+	ModbusAddr    string
+	ModbusUnitID  uint8
+	ModbusTimeout time.Duration
 	// OPC UA driver settings (ignored by other drivers).
 	OPCUAEndpoint   string
 	OPCUASecurity   string
@@ -69,6 +77,9 @@ func LoadConfig(envPath string) (*Config, error) {
 		PulseInterval:    getDuration("PULSE_INTERVAL", 5*time.Second),
 		MaxBatch:         getInt("MAX_BATCH", 100),
 		Driver:           get("SOURCE_DRIVER", DriverSimulated),
+		ModbusAddr:       get("MODBUS_ADDR", ""),
+		ModbusUnitID:     getUint8("MODBUS_UNIT_ID", 1),
+		ModbusTimeout:    getDuration("MODBUS_TIMEOUT", 1*time.Second),
 		OPCUAEndpoint:    get("OPCUA_ENDPOINT", ""),
 		OPCUASecurity:    get("OPCUA_SECURITY", "auto"),
 		OPCUAPolicy:      get("OPCUA_POLICY", "auto"),
@@ -124,16 +135,22 @@ func parseTags(raw string) ([]TagSpec, error) {
 		if item == "" {
 			continue
 		}
-		// Split off the OPC UA node spec. The canonical separator is "|":
-		//   asset.tag.metric:unit|node=<NodeID>
+		// Split off the driver address spec. The canonical separator is "|":
+		//   asset.tag.metric:unit|node=<NodeID>        (opcua driver)
+		//   asset.tag.metric:unit|reg=<fc>:<addr>:<t>  (modbus driver)
 		// The ":" in the OPC UA NodeID (e.g. "ns=2;s=Sim.PV") makes the older
 		// "=" separator ambiguous, so it is trimmed only for back-compat and
 		// the trailing "=" is stripped from the unit.
-		var nodeID string
+		var nodeID, regSpec string
 		if idx := strings.Index(item, "|"); idx >= 0 {
-			nodeID = strings.TrimSpace(item[idx+1:])
+			spec := strings.TrimSpace(item[idx+1:])
 			item = strings.TrimSpace(item[:idx])
-			nodeID = strings.TrimPrefix(nodeID, "node=")
+			switch {
+			case strings.HasPrefix(spec, "reg="):
+				regSpec = strings.TrimPrefix(spec, "reg=")
+			default:
+				nodeID = strings.TrimPrefix(spec, "node=")
+			}
 		} else if i := strings.Index(item, "node="); i >= 0 {
 			nodeID = strings.TrimSpace(item[i+len("node="):])
 			item = strings.TrimRight(item[:i], "=")
@@ -162,6 +179,7 @@ func parseTags(raw string) ([]TagSpec, error) {
 			Min:      dm.min,
 			Max:      dm.max,
 			NodeID:   nodeID,
+			Modbus:   regSpec,
 		})
 	}
 	if len(specs) == 0 {
@@ -181,6 +199,15 @@ func getInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func getUint8(key string, def uint8) uint8 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 8); err == nil {
+			return uint8(n)
 		}
 	}
 	return def

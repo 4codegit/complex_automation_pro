@@ -3,6 +3,8 @@ module cap
 go 1.25.12
 
 require (
+	github.com/goburrow/modbus v0.1.0
+	github.com/gopcua/opcua v0.9.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.10.0
 	modernc.org/sqlite v1.55.0
@@ -10,8 +12,8 @@ require (
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/goburrow/serial v0.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gopcua/opcua v0.9.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

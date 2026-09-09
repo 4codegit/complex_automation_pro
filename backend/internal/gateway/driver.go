@@ -9,6 +9,7 @@ import (
 const (
 	DriverSimulated = "simulated"
 	DriverOPCUA     = "opcua"
+	DriverModbus    = "modbus"
 )
 
 // NewSource builds the configured Source for cfg. The default is the simulated
@@ -25,8 +26,10 @@ func NewSource(cfg *Config) (Source, error) {
 		return NewSensor(cfg.ID, cfg.Tags), nil
 	case DriverOPCUA:
 		return newOPCUASource(cfg)
+	case DriverModbus:
+		return newModbusSource(cfg)
 	default:
-		return nil, fmt.Errorf("unsupported SOURCE_DRIVER %q (want %q or %q)",
-			driver, DriverSimulated, DriverOPCUA)
+		return nil, fmt.Errorf("unsupported SOURCE_DRIVER %q (want %q, %q or %q)",
+			driver, DriverSimulated, DriverOPCUA, DriverModbus)
 	}
 }
