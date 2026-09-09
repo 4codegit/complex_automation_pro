@@ -40,4 +40,4 @@ logs/
 node_modules/
 
 # Python
-.venv/
+.venv/docs-build/
