@@ -38,7 +38,7 @@ type TelemetryRecord = {
   profile_id: string | null;
 };
 
-type AdminTab = 'registry' | 'telemetry' | 'access';
+type AdminTab = 'registry' | 'sensors' | 'telemetry' | 'access';
 type RegistryState = 'loading' | 'ready' | 'error';
 type TelemetryState = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -90,6 +90,25 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function sendJson(path: string, method: 'POST' | 'PUT' | 'DELETE', body: unknown, actor: string): Promise<void> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-User': actor },
+    body: method === 'DELETE' && body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let detail = `status ${response.status}`;
+    try {
+      const problem = (await response.json()) as { message?: string };
+      if (problem.message) detail = problem.message;
+    } catch {
+      // keep the status-only detail
+    }
+    throw new Error(detail);
+  }
+}
+
 const AdminPanel: React.FC = () => {
   const [roles, setRoles] = useState<Role[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -105,6 +124,12 @@ const AdminPanel: React.FC = () => {
   const [historyHours, setHistoryHours] = useState('8');
   const [telemetry, setTelemetry] = useState<TelemetryRecord[]>([]);
   const [telemetryState, setTelemetryState] = useState<TelemetryState>('idle');
+  // Sensors tab: actor for the audit trail + add-form state.
+  const [actor, setActor] = useState('admin');
+  const [newAsset, setNewAsset] = useState({ id: '', name: '', area: '', criticality: 'M' });
+  const [newTag, setNewTag] = useState({ assetId: '', id: '', name: '', unit: '' });
+  const [mutationState, setMutationState] = useState<'idle' | 'busy'>('idle');
+  const [mutationNote, setMutationNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   const loadRegistry = useCallback(async () => {
     setRegistryState('loading');
@@ -138,6 +163,56 @@ const AdminPanel: React.FC = () => {
   useEffect(() => {
     void loadRegistry();
   }, [loadRegistry]);
+
+  const createAsset = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMutationState('busy');
+    setMutationNote(null);
+    try {
+      await sendJson('/assets', 'POST', {
+        id: newAsset.id.trim(),
+        name: newAsset.name.trim(),
+        area: newAsset.area.trim(),
+        criticality: newAsset.criticality,
+        active: true,
+      }, actor.trim());
+      setMutationNote({ ok: true, text: `Участок «${newAsset.id.trim()}» добавлен в реестр` });
+      setNewAsset({ id: '', name: '', area: '', criticality: 'M' });
+      await loadRegistry();
+    } catch (err) {
+      setMutationNote({ ok: false, text: err instanceof Error ? err.message : 'Ошибка запроса' });
+    } finally {
+      setMutationState('idle');
+    }
+  };
+
+  const createTag = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMutationState('busy');
+    setMutationNote(null);
+    try {
+      const tagID = newTag.id.trim();
+      const assetID = newTag.assetId;
+      if (!tagID.startsWith(`${assetID}.`)) {
+        throw new Error(`Тег должен начинаться с префикса участка: ${assetID}.<метрика>`);
+      }
+      await sendJson('/tags', 'POST', {
+        id: tagID,
+        asset_id: assetID,
+        name: newTag.name.trim() || tagID,
+        unit: newTag.unit.trim(),
+        data_type: 'number',
+        active: true,
+      }, actor.trim());
+      setMutationNote({ ok: true, text: `Сигнал «${tagID}» зарегистрирован` });
+      setNewTag((current) => ({ ...current, id: '', name: '', unit: '' }));
+      await loadRegistry();
+    } catch (err) {
+      setMutationNote({ ok: false, text: err instanceof Error ? err.message : 'Ошибка запроса' });
+    } finally {
+      setMutationState('idle');
+    }
+  };
 
   const assetById = useMemo(
     () => new Map(assets.map((asset) => [asset.id, asset])),
@@ -259,6 +334,7 @@ const AdminPanel: React.FC = () => {
       <div className="mb-5 flex gap-1 border-b border-gray-800" role="tablist" aria-label="Администрирование">
         {([
           ['registry', 'Реестр'],
+          ['sensors', 'Датчики'],
           ['telemetry', 'Данные'],
           ['access', 'Уровни доступа'],
         ] as const).map(([tab, label]) => (
@@ -380,6 +456,147 @@ const AdminPanel: React.FC = () => {
                 <p className="px-2 py-4 text-sm text-gray-500">Зарегистрированных сигналов нет</p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'sensors' && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <form onSubmit={createAsset} className="rounded border border-gray-800 bg-gray-900/40 p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Новый участок (asset)</h3>
+            <div className="mt-3 grid gap-3">
+              <label className="text-sm text-gray-300">
+                Идентификатор
+                <input
+                  required
+                  value={newAsset.id}
+                  onChange={(event) => setNewAsset({ ...newAsset, id: event.target.value })}
+                  className="mt-1 h-9 w-full rounded border border-gray-700 bg-gray-950 px-3 font-mono text-sm text-gray-100 outline-none placeholder:text-gray-600 focus:border-cyan-500"
+                  placeholder="plant-a.roasting"
+                />
+              </label>
+              <label className="text-sm text-gray-300">
+                Название
+                <input
+                  required
+                  value={newAsset.name}
+                  onChange={(event) => setNewAsset({ ...newAsset, name: event.target.value })}
+                  className="mt-1 h-9 w-full rounded border border-gray-700 bg-gray-950 px-3 text-sm text-gray-100 outline-none placeholder:text-gray-600 focus:border-cyan-500"
+                  placeholder="Обжиг и кальцинация"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm text-gray-300">
+                  Участок (area)
+                  <input
+                    required
+                    value={newAsset.area}
+                    onChange={(event) => setNewAsset({ ...newAsset, area: event.target.value })}
+                    className="mt-1 h-9 w-full rounded border border-gray-700 bg-gray-950 px-3 text-sm text-gray-100 outline-none placeholder:text-gray-600 focus:border-cyan-500"
+                    placeholder="Roasting"
+                  />
+                </label>
+                <label className="text-sm text-gray-300">
+                  Критичность
+                  <select
+                    value={newAsset.criticality}
+                    onChange={(event) => setNewAsset({ ...newAsset, criticality: event.target.value })}
+                    className="mt-1 h-9 w-full rounded border border-gray-700 bg-gray-950 px-2 text-sm text-gray-100 outline-none focus:border-cyan-500"
+                  >
+                    <option value="H">H — высокая</option>
+                    <option value="M">M — средняя</option>
+                    <option value="L">L — низкая</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={mutationState === 'busy'}
+              className="mt-4 h-9 w-full rounded bg-cyan-600 px-4 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Добавить участок
+            </button>
+          </form>
+
+          <form onSubmit={createTag} className="rounded border border-gray-800 bg-gray-900/40 p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Новый сигнал (тег)</h3>
+            <div className="mt-3 grid gap-3">
+              <label className="text-sm text-gray-300">
+                Участок
+                <select
+                  required
+                  value={newTag.assetId}
+                  onChange={(event) => setNewTag({ ...newTag, assetId: event.target.value })}
+                  className="mt-1 h-9 w-full rounded border border-gray-700 bg-gray-950 px-2 text-sm text-gray-100 outline-none focus:border-cyan-500"
+                >
+                  <option value="">— выберите —</option>
+                  {assets.filter((asset) => asset.active).map((asset) => (
+                    <option key={asset.id} value={asset.id}>{asset.name} ({asset.id})</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm text-gray-300">
+                Идентификатор тега
+                <input
+                  required
+                  value={newTag.id}
+                  onChange={(event) => setNewTag({ ...newTag, id: event.target.value })}
+                  className="mt-1 h-9 w-full rounded border border-gray-700 bg-gray-950 px-3 font-mono text-sm text-gray-100 outline-none placeholder:text-gray-600 focus:border-cyan-500"
+                  placeholder={newTag.assetId ? `${newTag.assetId}.roaster_temp` : '<участок>.<метрика>'}
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm text-gray-300">
+                  Название
+                  <input
+                    value={newTag.name}
+                    onChange={(event) => setNewTag({ ...newTag, name: event.target.value })}
+                    className="mt-1 h-9 w-full rounded border border-gray-700 bg-gray-950 px-3 text-sm text-gray-100 outline-none placeholder:text-gray-600 focus:border-cyan-500"
+                    placeholder="Температура обжига"
+                  />
+                </label>
+                <label className="text-sm text-gray-300">
+                  Единица
+                  <input
+                    required
+                    value={newTag.unit}
+                    onChange={(event) => setNewTag({ ...newTag, unit: event.target.value })}
+                    className="mt-1 h-9 w-full rounded border border-gray-700 bg-gray-950 px-3 text-sm text-gray-100 outline-none placeholder:text-gray-600 focus:border-cyan-500"
+                    placeholder="C"
+                  />
+                </label>
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={mutationState === 'busy' || !newTag.assetId}
+              className="mt-4 h-9 w-full rounded bg-cyan-600 px-4 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Зарегистрировать сигнал
+            </button>
+          </form>
+
+          <div className="lg:col-span-2 flex flex-wrap items-center gap-3">
+            <label className="text-sm text-gray-400">
+              Оператор (аудит)
+              <input
+                value={actor}
+                onChange={(event) => setActor(event.target.value)}
+                className="ml-2 h-9 w-40 rounded border border-gray-700 bg-gray-950 px-3 font-mono text-sm text-gray-100 outline-none focus:border-cyan-500"
+                aria-label="Субъект для аудита"
+              />
+            </label>
+            {mutationNote && (
+              <span className={`text-sm ${mutationNote.ok ? 'text-emerald-300' : 'text-red-300'}`} role="status">
+                {mutationNote.text}
+              </span>
+            )}
+            <p className="w-full text-xs text-gray-600">
+              Регистрация в реестре делает тег доступным приёму. Для реального источника укажите его адрес
+              в шлюзе, например спецификация Modbus в TAGS:
+              <span className="ml-1 font-mono text-gray-400">&lt;тег&gt;:&lt;ед.&gt;|reg=hr:8:u16:0.1</span>
+            </p>
           </div>
         </div>
       )}
