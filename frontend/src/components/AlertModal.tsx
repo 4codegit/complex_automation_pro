@@ -23,32 +23,33 @@ const AlertModal: React.FC<Props> = ({ alerts, onDismiss }) => {
 
   if (!visible || !current) return null;
 
-  const stageLabel = STAGE_META[current.stage]?.label ?? current.stage.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const stageLabel = STAGE_META[current.stage]?.label ?? current.stage.replace(/_/g, ' ');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="mx-4 max-w-lg rounded-2xl border-2 border-red-500 bg-gray-900 p-8 shadow-2xl shadow-red-500/30 animate-pulse-red">
-        <div className="mb-4 flex items-center gap-3">
-          <span className="text-4xl">🚨</span>
-          <h2 className="text-2xl font-bold text-red-400 uppercase tracking-wide">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="mx-4 w-full max-w-sm rounded-lg border border-red-500/50 bg-panel p-5 shadow-2xl shadow-red-950/50 animate-pulse-red">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-red-500 animate-blink-soft" />
+          <h2 className="text-[12px] font-bold uppercase tracking-[0.1em] text-red-400">
             Критическая тревога
           </h2>
         </div>
-        <p className="mb-2 text-lg text-gray-100">
-          <span className="font-bold text-red-300">{stageLabel}</span> — вышло за пределы нормы!
+        <p className="text-[13px] text-ink">
+          <span className="font-semibold text-red-300">{stageLabel}</span> — выход за пределы нормы
         </p>
-        <p className="text-gray-300">
-          <span className="font-mono font-bold text-red-400">{METRIC_LABELS[current.metric] ?? current.metric.replace(/_/g, ' ')}</span>{' '}
-          = <span className="font-mono font-bold text-white">{current.value.toFixed(2)} {current.unit}</span>
+        <p className="num mt-2 font-mono text-[13px] text-ink">
+          {METRIC_LABELS[current.metric] ?? current.metric.replace(/_/g, ' ')}{' '}
+          = <span className="font-semibold text-red-400">{current.value.toFixed(2)}</span>{' '}
+          <span className="text-dim">{current.unit}</span>
         </p>
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="num mt-1.5 font-mono text-[10px] text-dim">
           {new Date(current.timestamp).toLocaleTimeString()}
         </p>
         <button
           onClick={() => { setVisible(false); onDismiss?.(); }}
-          className="mt-6 w-full rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-500 transition-colors"
+          className="mt-4 h-8 w-full rounded border border-red-500/40 bg-red-500/15 text-[12px] font-semibold text-red-300 transition-colors hover:bg-red-500/25"
         >
-          Подтвердить
+          Квитировать
         </button>
       </div>
     </div>

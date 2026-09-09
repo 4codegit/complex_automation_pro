@@ -28,63 +28,65 @@ const Dashboard: React.FC = () => {
   }, [readings, stageOrder]);
 
   const isEmergencyActive = emergency?.type === 'emergency_start';
-  const offlineGateways = gateways.filter((g) => g.status !== 'online');
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Alert Modal */}
+    <div className="min-h-screen bg-base text-ink">
       <AlertModal alerts={alerts} />
 
-      {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm sticky top-0 z-40">
-        <div className="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">⚙️</span>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">CAP</h1>
-              <p className="text-xs text-gray-500">Панель мониторинга обогатительной фабрики</p>
-            </div>
+      {/* Header: brand, link state, gateways */}
+      <header className="sticky top-0 z-40 border-b border-line bg-base/85 backdrop-blur">
+        <div className="mx-auto flex h-12 max-w-[1440px] items-center gap-4 px-5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-6 w-6 items-center justify-center rounded bg-accent/10">
+              <svg width="14" height="14" viewBox="0 0 32 32" fill="none" aria-hidden>
+                <path d="M4 22 L11 22 L14 8 L18 26 L21 14 L28 14" stroke="#38bdf8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <span className="text-[13px] font-semibold tracking-[0.06em]">CAP</span>
+            <span className="hidden text-[11px] text-dim md:inline">мониторинг обогатительной фабрики</span>
           </div>
-          <div className="flex items-center gap-4">
+
+          <div className="ml-auto flex items-center gap-3 text-[11px]">
             {isEmergencyActive && (
-              <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white animate-pulse">
-                🚨 АВАРИЯ
+              <span className="flex items-center gap-1.5 rounded border border-red-500/40 bg-red-950/40 px-2 py-0.5 font-semibold text-red-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-blink-soft" />
+                АВАРИЙНЫЙ РЕЖИМ
               </span>
             )}
-            <div className="flex items-center gap-2 text-sm">
-              <span className={`h-2.5 w-2.5 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
-              <span className="text-gray-400">{connected ? 'Онлайн' : 'Переподключение…'}</span>
-            </div>
+
+            {/* Gateway pulses */}
+            {gateways.map((g) => (
+              <span key={g.id} className="flex items-center gap-1.5 text-mute" title={`буфер: ${g.buffer_size}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${g.status === 'online' ? 'bg-emerald-400' : 'bg-red-500 animate-blink-soft'}`} />
+                <span className="font-mono">{g.id}</span>
+                {g.buffer_size > 0 && <span className="text-amber-400">+{g.buffer_size}</span>}
+              </span>
+            ))}
+            {!loading && !error && gateways.length === 0 && (
+              <span className="text-dim">шлюзы не на пульсе</span>
+            )}
+
+            {/* Registry sync */}
+            {loading ? (
+              <span className="text-dim">реестр…</span>
+            ) : error ? (
+              <button onClick={reload} className="text-red-400 underline decoration-dotted">реестр: ошибка</button>
+            ) : (
+              <span className="hidden text-dim lg:inline">реестр {stageOrder.length} уч.</span>
+            )}
+
+            {/* Link */}
+            <span className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-500 animate-blink-soft'}`} />
+              <span className={connected ? 'text-mute' : 'text-red-400'}>{connected ? 'онлайн' : 'переподключение'}</span>
+            </span>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 space-y-6">
-        {/* Registry sync strip */}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span className="text-gray-500">
-            Реестр: {loading ? 'загрузка…' : error ? (
-              <button onClick={reload} className="text-red-400 underline">ошибка — обновить</button>
-            ) : (
-              <span className="text-emerald-400">синхронизирован ({stageOrder.length} участков)</span>
-            )}
-          </span>
-          <span className="flex flex-wrap gap-3">
-            {gateways.map((g) => (
-              <span key={g.id} className={`inline-flex items-center gap-1.5 ${g.status === 'online' ? 'text-emerald-400' : 'text-red-400'}`}>
-                <span className={`h-2 w-2 rounded-full ${g.status === 'online' ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
-                {g.id}
-                {g.buffer_size > 0 && <span className="text-amber-400">буфер: {g.buffer_size}</span>}
-              </span>
-            ))}
-            {!loading && !error && gateways.length === 0 && (
-              <span className="text-gray-600">шлюзы ещё не прислали пульс</span>
-            )}
-          </span>
-        </div>
-
-        {/* Status Cards (from registry) */}
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <main className="mx-auto max-w-[1440px] space-y-3 px-5 py-4">
+        {/* Stage cards */}
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           {stageOrder.map(({ area, label }) => {
             const stageReadings = stageData.get(area) || [];
             const hasAlert = stageReadings.some((r) => r.alert);
@@ -104,41 +106,30 @@ const Dashboard: React.FC = () => {
           })}
         </section>
 
-        {/* Live Chart */}
-        <section>
-          <LiveChart readings={readings} />
-        </section>
+        <LiveChart readings={readings} />
 
-        {/* Alarms + Profiles */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <AlarmPanel />
           <ProfilesPanel />
         </section>
 
-        {/* Bottom Row: Alert Log + Instructor Panel */}
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <section className="grid grid-cols-1 gap-3 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <AlertLog alerts={alerts} />
           </div>
-          <div>
-            <InstructorPanel
-              connected={connected}
-              emergencyActive={isEmergencyActive}
-              onTriggerEmergency={sendEmergency}
-              onStopEmergency={stopEmergency}
-            />
-          </div>
+          <InstructorPanel
+            connected={connected}
+            emergencyActive={isEmergencyActive}
+            onTriggerEmergency={sendEmergency}
+            onStopEmergency={stopEmergency}
+          />
         </section>
 
         <AdminPanel />
       </main>
 
-      {/* Footer */}
-      <footer className="border-b border-gray-800 mt-8 py-4 text-center text-xs text-gray-600">
-        CAP MVP — Система мониторинга обогатительной фабрики
-        {offlineGateways.length > 0 && (
-          <span className="ml-2 text-red-500">· шлюзы офлайн: {offlineGateways.map((g) => g.id).join(', ')}</span>
-        )}
+      <footer className="border-t border-line py-3 text-center text-[11px] text-dim">
+        CAP · Complex Automation Pro — MVP
       </footer>
     </div>
   );

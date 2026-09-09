@@ -6,55 +6,37 @@ interface Props {
   alerts: TelemetryReading[];
 }
 
-const STAGE_KEYS = ['crushing_grinding', 'flotation', 'drying_dewatering', 'final_concentrate'] as const;
-
-const METRICS_BY_STAGE: Record<string, string[]> = {
-  crushing_grinding: ['particle_size', 'pulp_density'],
-  flotation: ['ph_level', 'reagent_dosage'],
-  drying_dewatering: ['cake_moisture', 'dryer_temperature'],
-  final_concentrate: ['tonnage_weight', 'final_moisture'],
-};
-
-function groupAlertsByStage(alerts: TelemetryReading[]): Map<string, TelemetryReading[]> {
-  const map = new Map<string, TelemetryReading[]>();
-  for (const a of alerts) {
-    const stage = a.stage;
-    if (!map.has(stage)) map.set(stage, []);
-    map.get(stage)!.push(a);
-  }
-  return map;
-}
-
 const AlertLog: React.FC<Props> = ({ alerts }) => {
-  const grouped = groupAlertsByStage(alerts);
   const recent = alerts.slice(-20).reverse();
 
   return (
-    <div className="rounded-xl border border-gray-700 bg-gray-800/70 p-5">
-      <h3 className="mb-3 text-sm font-semibold text-gray-400 uppercase tracking-wider">
-        📋 Журнал тревог
+    <div className="rounded-lg border border-line bg-panel p-3.5">
+      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-mute">
+        Журнал тревог
       </h3>
       {recent.length === 0 ? (
-        <p className="text-sm text-gray-500 italic">Тревог пока нет — система работает в норме.</p>
+        <p className="py-3 text-[12px] text-dim">Тревог пока нет — система работает в норме.</p>
       ) : (
-        <div className="max-h-64 overflow-y-auto space-y-2">
+        <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
           {recent.map((a, i) => {
-            const meta = STAGE_META[a.stage] || { label: a.stage, icon: '❓' };
+            const meta = STAGE_META[a.stage];
             return (
               <div
                 key={i}
-                className="flex items-center gap-3 rounded-lg bg-red-950/40 border border-red-800/50 px-3 py-2"
+                className="flex items-center gap-2.5 rounded border border-red-500/20 bg-red-950/20 px-2.5 py-1.5"
               >
-                <span className="text-lg">{meta.icon}</span>
-                <div className="flex-1">
-                  <p className="text-xs text-red-300 font-semibold">
-                    {meta.label} — {METRIC_LABELS[a.metric] ?? a.metric.replace(/_/g, ' ')}
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500 animate-blink-soft" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] font-semibold text-red-200">
+                    {meta?.label ?? a.stage}
+                    <span className="mx-1.5 text-dim">/</span>
+                    <span className="text-red-300">{METRIC_LABELS[a.metric] ?? a.metric.replace(/_/g, ' ')}</span>
                   </p>
-                  <p className="text-xs text-gray-400">
-                    Значение: <span className="font-mono text-white">{a.value.toFixed(2)} {a.unit}</span>
+                  <p className="num text-[10px] text-mute">
+                    значение <span className="font-mono text-ink">{a.value.toFixed(2)} {a.unit}</span>
                   </p>
                 </div>
-                <span className="text-[10px] text-gray-500">
+                <span className="num shrink-0 font-mono text-[10px] text-dim">
                   {new Date(a.timestamp).toLocaleTimeString()}
                 </span>
               </div>

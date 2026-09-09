@@ -3,17 +3,32 @@
 @tailwind utilities;
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  @apply bg-base text-ink text-[13px] antialiased;
+  font-feature-settings: 'cv05', 'ss01';
 }
 
-/* Custom scrollbar */
+/* Numeric readouts: fixed-width digits so values don't jitter while streaming */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgba(56, 189, 248, 0.25);
+}
+
+/* Thin, unobtrusive scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #475569;
-  border-radius: 3px;
+  background: #232d3a;
+  border-radius: 4px;
+  border: 2px solid #0a0e13;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2e3a4a;
 }

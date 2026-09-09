@@ -9,44 +9,48 @@ interface Props {
 
 const InstructorPanel: React.FC<Props> = ({ connected, emergencyActive, onTriggerEmergency, onStopEmergency }) => {
   return (
-    <div className="rounded-xl border border-gray-700 bg-gray-800/70 p-5">
-      <h3 className="mb-3 text-sm font-semibold text-gray-400 uppercase tracking-wider">
-        🎬 Панель оператора
-      </h3>
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-sm">
-          <span className={`h-2.5 w-2.5 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-gray-300">
-            WebSocket: {connected ? 'Подключено' : 'Отключено'}
-          </span>
-        </div>
+    <div className="flex flex-col rounded-lg border border-line bg-panel p-3.5">
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-mute">
+          Режим инструктора
+        </h3>
+        <span className="rounded border border-line px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-dim">
+          dev
+        </span>
+      </div>
 
-        <div className="flex gap-3">
+      <div className="space-y-2.5">
+        <p className="flex items-center gap-1.5 text-[11px] text-mute">
+          <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-500'}`} />
+          WebSocket: {connected ? 'подключено' : 'отключено'}
+        </p>
+
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={onTriggerEmergency}
             disabled={emergencyActive}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+            className={`h-8 rounded px-3 text-[11px] font-semibold transition-colors ${
               emergencyActive
-                ? 'cursor-not-allowed bg-red-900/50 text-red-300'
-                : 'bg-red-600 text-white hover:bg-red-500 shadow-lg shadow-red-600/30'
+                ? 'cursor-not-allowed border border-red-500/30 bg-red-950/40 text-red-400'
+                : 'bg-red-600 text-white hover:bg-red-500'
             }`}
           >
-            {emergencyActive ? '🚨 Авария активна' : '⚡ Смоделировать критическую неисправность'}
+            {emergencyActive ? 'Авария активна' : 'Смоделировать неисправность'}
           </button>
 
           {emergencyActive && (
             <button
               onClick={onStopEmergency}
-              className="rounded-lg border border-yellow-600 bg-yellow-900/30 px-4 py-2 text-sm font-semibold text-yellow-300 hover:bg-yellow-800/40 transition-colors"
+              className="h-8 rounded border border-amber-500/40 bg-amber-500/10 px-3 text-[11px] font-semibold text-amber-300 transition-colors hover:bg-amber-500/20"
             >
-              ✅ Завершить аварию
+              Завершить
             </button>
           )}
         </div>
 
         {emergencyActive && (
-          <p className="text-xs text-yellow-400 animate-pulse">
-            Режим аварии активен — влажность шлама выросла до 15%, pH флотации упал до 5.0
+          <p className="text-[11px] leading-relaxed text-amber-400/90">
+            Режим аварии активен — влажность шлама выросла до 15%, pH флотации упал до 5.0.
           </p>
         )}
       </div>
