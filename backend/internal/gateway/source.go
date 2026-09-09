@@ -8,8 +8,9 @@ import (
 )
 
 // Source emits canonical telemetry messages for a gateway. Implementations:
-// the simulated Sensor, the opcua.Source, the modbusSource and future mqtt
-// drivers. Sources MUST be safe for concurrent use by exactly one polling loop.
+// the simulated Sensor, the opcua.Source, the modbusSource and the
+// sparkplugSource. Sources MUST be safe for concurrent use by exactly one
+// polling loop.
 //
 // Read-only invariant (Level 3, ISA-95): a Source exposes read operations only
 // against the OT asset. Implementations MUST NOT provide a write path; control

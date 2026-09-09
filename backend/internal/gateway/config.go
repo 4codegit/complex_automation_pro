@@ -13,8 +13,9 @@ import (
 )
 
 // TagSpec is one local instrument the gateway polls. The OPC UA NodeID is
-// used by the opcua driver, the Modbus register spec by the modbus driver;
-// simulated/other drivers ignore both.
+// used by the opcua driver, the Modbus register spec by the modbus driver,
+// the Sparkplug metric path by the sparkplug driver; simulated drivers
+// ignore all of them.
 type TagSpec struct {
 	TagID    string
 	AssetID  string
@@ -26,6 +27,8 @@ type TagSpec struct {
 	NodeID   string
 	// Modbus is the register spec "fc:addr:type[:scale]" (see modbus.go).
 	Modbus string
+	// Sparkplug is the metric path "group/edge[/device]/metric_name".
+	Sparkplug string
 }
 
 // Config holds the gateway runtime settings.
@@ -47,6 +50,11 @@ type Config struct {
 	ModbusAddr    string
 	ModbusUnitID  uint8
 	ModbusTimeout time.Duration
+	// MQTT/Sparkplug B driver settings (ignored by other drivers).
+	MQTTBroker   string
+	MQTTClientID string
+	MQTTUsername string
+	MQTTPassword string
 	// OPC UA driver settings (ignored by other drivers).
 	OPCUAEndpoint   string
 	OPCUASecurity   string
@@ -80,6 +88,10 @@ func LoadConfig(envPath string) (*Config, error) {
 		ModbusAddr:       get("MODBUS_ADDR", ""),
 		ModbusUnitID:     getUint8("MODBUS_UNIT_ID", 1),
 		ModbusTimeout:    getDuration("MODBUS_TIMEOUT", 1*time.Second),
+		MQTTBroker:       get("MQTT_BROKER", ""),
+		MQTTClientID:     get("MQTT_CLIENT_ID", ""),
+		MQTTUsername:     get("MQTT_USERNAME", ""),
+		MQTTPassword:     get("MQTT_PASSWORD", ""),
 		OPCUAEndpoint:    get("OPCUA_ENDPOINT", ""),
 		OPCUASecurity:    get("OPCUA_SECURITY", "auto"),
 		OPCUAPolicy:      get("OPCUA_POLICY", "auto"),
@@ -138,16 +150,19 @@ func parseTags(raw string) ([]TagSpec, error) {
 		// Split off the driver address spec. The canonical separator is "|":
 		//   asset.tag.metric:unit|node=<NodeID>        (opcua driver)
 		//   asset.tag.metric:unit|reg=<fc>:<addr>:<t>  (modbus driver)
+		//   asset.tag.metric:unit|sp=group/edge/name   (sparkplug driver)
 		// The ":" in the OPC UA NodeID (e.g. "ns=2;s=Sim.PV") makes the older
 		// "=" separator ambiguous, so it is trimmed only for back-compat and
 		// the trailing "=" is stripped from the unit.
-		var nodeID, regSpec string
+		var nodeID, regSpec, spSpec string
 		if idx := strings.Index(item, "|"); idx >= 0 {
 			spec := strings.TrimSpace(item[idx+1:])
 			item = strings.TrimSpace(item[:idx])
 			switch {
 			case strings.HasPrefix(spec, "reg="):
 				regSpec = strings.TrimPrefix(spec, "reg=")
+			case strings.HasPrefix(spec, "sp="):
+				spSpec = strings.TrimPrefix(spec, "sp=")
 			default:
 				nodeID = strings.TrimPrefix(spec, "node=")
 			}
@@ -171,15 +186,16 @@ func parseTags(raw string) ([]TagSpec, error) {
 			dm = demoMetrics["particle_size"]
 		}
 		specs = append(specs, TagSpec{
-			TagID:    tagID,
-			AssetID:  strings.Join(seg[:len(seg)-1], "."),
-			Unit:     unit,
-			Baseline: dm.baseline,
-			Noise:    dm.noise,
-			Min:      dm.min,
-			Max:      dm.max,
-			NodeID:   nodeID,
-			Modbus:   regSpec,
+			TagID:     tagID,
+			AssetID:   strings.Join(seg[:len(seg)-1], "."),
+			Unit:      unit,
+			Baseline:  dm.baseline,
+			Noise:     dm.noise,
+			Min:       dm.min,
+			Max:       dm.max,
+			NodeID:    nodeID,
+			Modbus:    regSpec,
+			Sparkplug: spSpec,
 		})
 	}
 	if len(specs) == 0 {

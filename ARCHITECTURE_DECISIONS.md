@@ -66,7 +66,7 @@ introduced at the **source boundary**:
 
 ```go
 // Source emits canonical telemetry messages for a gateway.
-// Implementations: simulated Sensor, opcua.Source, modbusSource, (future) mqtt.
+// Implementations: simulated Sensor, opcua.Source, modbusSource, sparkplugSource.
 // Sources MUST be safe for concurrent use by exactly one Polling loop.
 type Source interface {
     // Name returns the driver id for logs/metrics, e.g. "opcua", "simulated".
@@ -171,7 +171,11 @@ returns.
 Phasing: B1.1 ships the `Source` interface + simulated refactor + a
 `gopcua/opcua` poll-only driver behind `SOURCE_DRIVER=opcua`. Subscriptions
 land as B1.2 once the poll path is green in a lab. B1.3 ships the modbus
-TCP driver above. MQTT remains future work referenced from this ADR.
+TCP driver above. B1.4 ships a Sparkplug B driver behind
+`SOURCE_DRIVER=sparkplug`: Primary Host Application role (subscribe-only,
+no publish path exists), hand-rolled protobuf wire decoding of the frozen
+sparkplug_b Payload/Metric schema (no protobuf codegen), alias->name
+resolution from NBIRTH/DBIRTH.
 
 ## ADR-002: Audit trail before auth (2026-08-04)
 

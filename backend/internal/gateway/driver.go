@@ -10,6 +10,7 @@ const (
 	DriverSimulated = "simulated"
 	DriverOPCUA     = "opcua"
 	DriverModbus    = "modbus"
+	DriverSparkplug = "sparkplug"
 )
 
 // NewSource builds the configured Source for cfg. The default is the simulated
@@ -28,8 +29,10 @@ func NewSource(cfg *Config) (Source, error) {
 		return newOPCUASource(cfg)
 	case DriverModbus:
 		return newModbusSource(cfg)
+	case DriverSparkplug:
+		return newSparkplugSource(cfg)
 	default:
-		return nil, fmt.Errorf("unsupported SOURCE_DRIVER %q (want %q, %q or %q)",
-			driver, DriverSimulated, DriverOPCUA, DriverModbus)
+		return nil, fmt.Errorf("unsupported SOURCE_DRIVER %q (want %q, %q, %q or %q)",
+			driver, DriverSimulated, DriverOPCUA, DriverModbus, DriverSparkplug)
 	}
 }
