@@ -71,12 +71,12 @@ const QUALITY_LABELS: Record<string, string> = {
 };
 
 const QUALITY_STYLES: Record<string, string> = {
-  good: 'text-emerald-300',
-  uncertain: 'text-amber-300',
-  bad: 'text-red-300',
-  stale: 'text-amber-300',
+  good: 'text-ok',
+  uncertain: 'text-warn',
+  bad: 'text-alarm',
+  stale: 'text-warn',
   substituted: 'text-accent',
-  offline: 'text-red-300',
+  offline: 'text-alarm',
 };
 
 function formatNumber(value: number): string {
@@ -302,10 +302,10 @@ const AdminPanel: React.FC = () => {
       : 'Реестр недоступен';
 
   const registryStatusClass = registryState === 'ready'
-    ? 'text-emerald-400'
+    ? 'text-ok'
     : registryState === 'loading'
-      ? 'text-amber-400'
-      : 'text-red-400';
+      ? 'text-warn'
+      : 'text-alarm';
 
   return (
     <section id="administration" className="rounded-lg border border-line bg-panel2 p-5">
@@ -340,7 +340,7 @@ const AdminPanel: React.FC = () => {
         </div>
         <div className="border-r border-line px-3">
           <dt className="text-[11px] uppercase tracking-wide text-dim">Активные</dt>
-          <dd className="mt-1 text-lg font-semibold text-emerald-300">{tags.filter((tag) => tag.active).length}</dd>
+          <dd className="mt-1 text-lg font-semibold text-ok">{tags.filter((tag) => tag.active).length}</dd>
         </div>
         <div className="px-3 last:pr-0">
           <dt className="text-[11px] uppercase tracking-wide text-dim">Роли</dt>
@@ -402,7 +402,7 @@ const AdminPanel: React.FC = () => {
                       <span className="block truncate text-sm text-ink">{asset.name}</span>
                       <span className="block truncate text-xs text-dim">{asset.area} · {asset.id}</span>
                     </span>
-                    <span className={`shrink-0 text-[11px] ${asset.active ? 'text-emerald-400' : 'text-dim'}`}>
+                    <span className={`shrink-0 text-[11px] ${asset.active ? 'text-ok' : 'text-dim'}`}>
                       {asset.active ? asset.criticality : 'inactive'}
                     </span>
                   </button>
@@ -462,7 +462,7 @@ const AdminPanel: React.FC = () => {
                       <td className="whitespace-nowrap px-2 py-2.5 text-mute">
                         {tag.sampling_interval_seconds ?? '—'}{tag.sampling_interval_seconds !== undefined ? ' s' : ''}
                       </td>
-                      <td className={`whitespace-nowrap px-2 py-2.5 text-xs ${tag.active ? 'text-emerald-400' : 'text-dim'}`}>
+                      <td className={`whitespace-nowrap px-2 py-2.5 text-xs ${tag.active ? 'text-ok' : 'text-dim'}`}>
                         {tag.active ? 'Активен' : 'Неактивен'}
                       </td>
                     </tr>
@@ -631,7 +631,7 @@ const AdminPanel: React.FC = () => {
               />
             </label>
             {mutationNote && (
-              <span className={`text-sm ${mutationNote.ok ? 'text-emerald-300' : 'text-red-300'}`} role="status">
+              <span className={`text-sm ${mutationNote.ok ? 'text-ok' : 'text-alarm'}`} role="status">
                 {mutationNote.text}
               </span>
             )}
@@ -697,7 +697,7 @@ const AdminPanel: React.FC = () => {
             <p className="py-8 text-sm text-dim">Выберите фильтры для просмотра принятых измерений.</p>
           )}
           {telemetryState === 'error' && (
-            <p className="py-8 text-sm text-red-300">История телеметрии сейчас недоступна.</p>
+            <p className="py-8 text-sm text-alarm">История телеметрии сейчас недоступна.</p>
           )}
           {telemetryState === 'ready' && (
             <div className="pt-5">

@@ -22,9 +22,9 @@ type Analytics = {
 };
 
 const STATUS_META: Record<KpiStatus, { dot: string; label: string; cls: string }> = {
-  ok: { dot: 'bg-emerald-400', label: 'норма', cls: 'text-emerald-300' },
-  warn: { dot: 'bg-amber-400', label: 'внимание', cls: 'text-amber-300' },
-  bad: { dot: 'bg-red-500', label: 'нарушение', cls: 'text-red-300' },
+  ok: { dot: 'bg-ok', label: 'норма', cls: 'text-ok' },
+  warn: { dot: 'bg-warn', label: 'внимание', cls: 'text-warn' },
+  bad: { dot: 'bg-red-500', label: 'нарушение', cls: 'text-alarm' },
   nodata: { dot: 'bg-gray-500', label: 'нет данных', cls: 'text-dim' },
 };
 
@@ -54,7 +54,7 @@ const AnalyticsPanel: React.FC = () => {
   }
   if (state === 'error' || !data) {
     return (
-      <p className="py-6 text-[12px] text-red-400">
+      <p className="py-6 text-[12px] text-alarm">
         Сервис расчёта недоступен — проверьте, что запущен historian.
       </p>
     );
@@ -67,7 +67,7 @@ const AnalyticsPanel: React.FC = () => {
       {/* Header strip */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-mute">
         <span className="flex items-center gap-1.5">
-          <span className={`h-1.5 w-1.5 rounded-full ${violations > 0 ? 'bg-red-500 animate-blink-soft' : 'bg-emerald-400'}`} />
+          <span className={`h-1.5 w-1.5 rounded-full ${violations > 0 ? 'bg-red-500 animate-blink-soft' : 'bg-ok'}`} />
           {violations > 0 ? `нарушений коридоров: ${violations}` : 'все коридоры в норме'}
         </span>
         {data.profile && (
@@ -114,7 +114,7 @@ const AnalyticsPanel: React.FC = () => {
       </section>
 
       {data.missing_raw_inputs && data.missing_raw_inputs.length > 0 && (
-        <p className="rounded border border-amber-500/25 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-300/90">
+        <p className="rounded border border-warn/25 bg-warn/10 px-3 py-2 text-[11px] text-warn/90">
           Нет свежих данных по исходным тегам: {data.missing_raw_inputs.join(', ')} — расчёты по ним
           показаны как «нет данных». CAP не подставляет заглушки.
         </p>

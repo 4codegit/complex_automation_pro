@@ -86,31 +86,32 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
       </div>
       <ResponsiveContainer width="100%" height={252}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-          <CartesianGrid strokeDasharray="2 4" stroke="#1a222c" vertical={false} />
+          <CartesianGrid strokeDasharray="2 4" stroke="var(--c-grid)" vertical={false} />
           <XAxis
             dataKey="time"
-            tick={{ fontSize: 10, fill: '#5c6875' }}
+            tick={{ fontSize: 10, fill: 'var(--c-dim)' }}
             interval="preserveStartEnd"
             minTickGap={48}
-            axisLine={{ stroke: '#1e2630' }}
+            axisLine={{ stroke: 'var(--c-line)' }}
             tickLine={false}
           />
           <YAxis
-            tick={{ fontSize: 10, fill: '#5c6875' }}
+            tick={{ fontSize: 10, fill: 'var(--c-dim)' }}
             width={44}
             axisLine={false}
             tickLine={false}
           />
           <Tooltip
-            cursor={{ stroke: '#2a3644', strokeDasharray: '3 3' }}
+            cursor={{ stroke: 'var(--c-dim)', strokeDasharray: '3 3' }}
             contentStyle={{
-              backgroundColor: '#10151c',
-              border: '1px solid #1e2630',
+              backgroundColor: 'var(--c-panel)',
+              border: '1px solid var(--c-line)',
               borderRadius: 8,
               fontSize: 11,
               padding: '6px 10px',
+              color: 'var(--c-ink)',
             }}
-            labelStyle={{ color: '#93a1b0', marginBottom: 2 }}
+            labelStyle={{ color: 'var(--c-mute)', marginBottom: 2 }}
             itemStyle={{ padding: 0 }}
           />
           {metrics.map((m) => (

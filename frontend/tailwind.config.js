@@ -4,14 +4,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        base: '#0a0e13', // page background
-        panel: '#10151c', // card surface
-        panel2: '#151b24', // nested surface / hover
-        line: '#1e2630', // borders
-        ink: '#e6edf3', // primary text
-        mute: '#93a1b0', // secondary text
-        dim: '#5c6875', // tertiary text / hints
-        accent: '#38bdf8', // interactive accent
+        // Theme tokens live in CSS variables (index.css): light is the default
+        // theme, dark activates via [data-theme='dark'] on <html>.
+        base: 'rgb(var(--c-base) / <alpha-value>)',
+        panel: 'rgb(var(--c-panel) / <alpha-value>)',
+        panel2: 'rgb(var(--c-panel2) / <alpha-value>)',
+        line: 'rgb(var(--c-line) / <alpha-value>)',
+        ink: 'rgb(var(--c-ink) / <alpha-value>)',
+        mute: 'rgb(var(--c-mute) / <alpha-value>)',
+        dim: 'rgb(var(--c-dim) / <alpha-value>)',
+        accent: 'rgb(var(--c-accent) / <alpha-value>)',
+        ok: 'rgb(var(--c-ok) / <alpha-value>)',
+        warn: 'rgb(var(--c-warn) / <alpha-value>)',
+        alarm: 'rgb(var(--c-alarm) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],

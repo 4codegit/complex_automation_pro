@@ -27,19 +27,19 @@ const AlertModal: React.FC<Props> = ({ alerts, onDismiss }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="mx-4 w-full max-w-sm rounded-lg border border-red-500/50 bg-panel p-5 shadow-2xl shadow-red-950/50 animate-pulse-red">
+      <div className="mx-4 w-full max-w-sm rounded-lg border border-alarm/50 bg-panel p-5 shadow-2xl shadow-black/10 animate-pulse-red">
         <div className="mb-3 flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-red-500 animate-blink-soft" />
-          <h2 className="text-[12px] font-bold uppercase tracking-[0.1em] text-red-400">
+          <h2 className="text-[12px] font-bold uppercase tracking-[0.1em] text-alarm">
             Критическая тревога
           </h2>
         </div>
         <p className="text-[13px] text-ink">
-          <span className="font-semibold text-red-300">{stageLabel}</span> — выход за пределы нормы
+          <span className="font-semibold text-alarm">{stageLabel}</span> — выход за пределы нормы
         </p>
         <p className="num mt-2 font-mono text-[13px] text-ink">
           {METRIC_LABELS[current.metric] ?? current.metric.replace(/_/g, ' ')}{' '}
-          = <span className="font-semibold text-red-400">{current.value.toFixed(2)}</span>{' '}
+          = <span className="font-semibold text-alarm">{current.value.toFixed(2)}</span>{' '}
           <span className="text-dim">{current.unit}</span>
         </p>
         <p className="num mt-1.5 font-mono text-[10px] text-dim">
@@ -47,7 +47,7 @@ const AlertModal: React.FC<Props> = ({ alerts, onDismiss }) => {
         </p>
         <button
           onClick={() => { setVisible(false); onDismiss?.(); }}
-          className="mt-4 h-8 w-full rounded border border-red-500/40 bg-red-500/15 text-[12px] font-semibold text-red-300 transition-colors hover:bg-red-500/25"
+          className="mt-4 h-8 w-full rounded border border-alarm/40 bg-alarm/15 text-[12px] font-semibold text-alarm transition-colors hover:bg-alarm/25"
         >
           Квитировать
         </button>

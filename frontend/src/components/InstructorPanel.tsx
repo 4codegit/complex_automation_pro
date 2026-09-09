@@ -21,7 +21,7 @@ const InstructorPanel: React.FC<Props> = ({ connected, emergencyActive, onTrigge
 
       <div className="space-y-2.5">
         <p className="flex items-center gap-1.5 text-[11px] text-mute">
-          <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-500'}`} />
+          <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-ok' : 'bg-red-500'}`} />
           WebSocket: {connected ? 'подключено' : 'отключено'}
         </p>
 
@@ -31,7 +31,7 @@ const InstructorPanel: React.FC<Props> = ({ connected, emergencyActive, onTrigge
             disabled={emergencyActive}
             className={`h-8 rounded px-3 text-[11px] font-semibold transition-colors ${
               emergencyActive
-                ? 'cursor-not-allowed border border-red-500/30 bg-red-950/40 text-red-400'
+                ? 'cursor-not-allowed border border-alarm/30 bg-alarm/10 text-alarm'
                 : 'bg-red-600 text-white hover:bg-red-500'
             }`}
           >
@@ -41,7 +41,7 @@ const InstructorPanel: React.FC<Props> = ({ connected, emergencyActive, onTrigge
           {emergencyActive && (
             <button
               onClick={onStopEmergency}
-              className="h-8 rounded border border-amber-500/40 bg-amber-500/10 px-3 text-[11px] font-semibold text-amber-300 transition-colors hover:bg-amber-500/20"
+              className="h-8 rounded border border-warn/40 bg-warn/10 px-3 text-[11px] font-semibold text-warn transition-colors hover:bg-warn/20"
             >
               Завершить
             </button>
@@ -49,7 +49,7 @@ const InstructorPanel: React.FC<Props> = ({ connected, emergencyActive, onTrigge
         </div>
 
         {emergencyActive && (
-          <p className="text-[11px] leading-relaxed text-amber-400/90">
+          <p className="text-[11px] leading-relaxed text-warn/90">
             Режим аварии активен — влажность шлама выросла до 15%, pH флотации упал до 5.0.
           </p>
         )}

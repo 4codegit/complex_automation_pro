@@ -2,6 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme tokens as RGB triplets so tailwind alpha modifiers work.
+   Light is the default; dark activates via [data-theme='dark'] on <html>. */
+:root {
+  --c-base: 246 248 251;
+  --c-panel: 255 255 255;
+  --c-panel2: 241 245 249;
+  --c-line: 224 230 238;
+  --c-ink: 15 23 42;
+  --c-mute: 71 85 105;
+  --c-dim: 100 116 139;
+  --c-accent: 2 132 199;
+  --c-ok: 5 150 105;
+  --c-warn: 217 119 6;
+  --c-alarm: 220 38 38;
+  --c-grid: 226 232 240;
+}
+
+[data-theme='dark'] {
+  --c-base: 10 14 19;
+  --c-panel: 16 21 28;
+  --c-panel2: 21 27 36;
+  --c-line: 30 38 48;
+  --c-ink: 230 237 243;
+  --c-mute: 147 161 176;
+  --c-dim: 92 104 117;
+  --c-accent: 56 189 248;
+  --c-ok: 52 211 153;
+  --c-warn: 251 191 36;
+  --c-alarm: 248 113 113;
+  --c-grid: 26 34 44;
+}
+
 body {
   @apply bg-base text-ink text-[13px] antialiased;
   font-feature-settings: 'cv05', 'ss01';
@@ -13,7 +45,7 @@ body {
 }
 
 ::selection {
-  background: rgba(56, 189, 248, 0.25);
+  background: rgb(var(--c-accent) / 0.25);
 }
 
 /* Thin, unobtrusive scrollbars */
@@ -25,10 +57,10 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #232d3a;
+  background: rgb(var(--c-line));
   border-radius: 4px;
-  border: 2px solid #0a0e13;
+  border: 2px solid rgb(var(--c-base));
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #2e3a4a;
+  background: rgb(var(--c-dim));
 }

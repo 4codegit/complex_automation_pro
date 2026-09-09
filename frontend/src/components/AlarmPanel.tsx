@@ -4,13 +4,13 @@ import { AlarmState, stateLabel, useAlarms } from '../hooks/useAlarms';
 const SEVERITY_BAR: Record<string, string> = {
   critical: 'border-l-2 border-l-red-500',
   high: 'border-l-2 border-l-orange-400',
-  medium: 'border-l-2 border-l-amber-400',
+  medium: 'border-l-2 border-l-warn',
 };
 
 const SEVERITY_DOT: Record<string, string> = {
   critical: 'bg-red-500',
   high: 'bg-orange-400',
-  medium: 'bg-amber-400',
+  medium: 'bg-warn',
 };
 
 function formatTime(value: string | null): string {
@@ -48,7 +48,7 @@ const AlarmPanel: React.FC = () => {
         </h3>
         <span
           className={`num rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold ${
-            activeCount > 0 ? 'bg-red-950/50 text-red-300' : 'bg-panel2 text-dim'
+            activeCount > 0 ? 'bg-alarm/10 text-alarm' : 'bg-panel2 text-dim'
           }`}
         >
           {activeCount}
@@ -65,7 +65,7 @@ const AlarmPanel: React.FC = () => {
         />
       </label>
 
-      {error && <p className="mb-2 text-[11px] text-red-400">{error}</p>}
+      {error && <p className="mb-2 text-[11px] text-alarm">{error}</p>}
 
       <div className="space-y-1.5">
         {alarms.length === 0 && (

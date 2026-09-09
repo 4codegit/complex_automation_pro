@@ -10,7 +10,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'border-line text-dim',
-  approved: 'border-emerald-500/40 text-emerald-300',
+  approved: 'border-ok/40 text-ok',
   active: 'border-accent/40 text-accent',
   superseded: 'border-line text-dim line-through',
 };
@@ -65,7 +65,7 @@ const ProfilesPanel: React.FC = () => {
         </p>
       )}
 
-      {error && <p className="mb-2 text-[11px] text-red-400">{error}</p>}
+      {error && <p className="mb-2 text-[11px] text-alarm">{error}</p>}
 
       {showForm && (
         <form onSubmit={submit} className="mb-2.5 space-y-2.5 rounded border border-line bg-panel2/40 p-3">
@@ -127,7 +127,7 @@ const ProfilesPanel: React.FC = () => {
               {profile.status === 'draft' && (
                 <button
                   onClick={() => void approve(profile.id, 'chief-metallurgist').catch(() => setError('Не удалось согласовать'))}
-                  className="h-6 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 text-[10px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                  className="h-6 rounded border border-ok/40 bg-ok/10 px-2 text-[10px] font-semibold text-ok transition-colors hover:bg-ok/20"
                 >
                   Согласовать
                 </button>

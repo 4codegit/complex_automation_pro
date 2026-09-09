@@ -21,8 +21,8 @@ export const METRIC_LABELS: Record<string, string> = {
 };
 
 const QUALITY_DOT: Record<string, { cls: string; label: string }> = {
-  good: { cls: 'bg-emerald-400', label: 'хорошее' },
-  uncertain: { cls: 'bg-amber-400', label: 'неопределённое' },
+  good: { cls: 'bg-ok', label: 'хорошее' },
+  uncertain: { cls: 'bg-warn', label: 'неопределённое' },
   bad: { cls: 'bg-red-500', label: 'негодное' },
   stale: { cls: 'bg-gray-500', label: 'устаревшее' },
   substituted: { cls: 'bg-violet-400', label: 'замещённое' },
@@ -46,7 +46,7 @@ const StatusCard: React.FC<Props> = ({ stageKey, label, readings, hasAlert, isEm
   return (
     <div
       className={`rounded-lg border bg-panel p-3.5 transition-colors ${
-        alarm ? 'border-red-500/60 animate-pulse-red' : 'border-line'
+        alarm ? 'border-alarm/50 animate-pulse-red' : 'border-line'
       }`}
       style={alarm ? undefined : { borderLeft: `2px solid ${accent}` }}
     >
@@ -55,13 +55,13 @@ const StatusCard: React.FC<Props> = ({ stageKey, label, readings, hasAlert, isEm
           {title}
         </h3>
         {hasAlert ? (
-          <span className="flex shrink-0 items-center gap-1 rounded bg-red-950/50 px-1.5 py-0.5 text-[10px] font-semibold text-red-300">
+          <span className="flex shrink-0 items-center gap-1 rounded bg-alarm/10 px-1.5 py-0.5 text-[10px] font-semibold text-alarm">
             <span className="h-1 w-1 rounded-full bg-red-500 animate-blink-soft" />
             ТРЕВОГА
           </span>
         ) : isEmergency ? (
-          <span className="flex shrink-0 items-center gap-1 rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
-            <span className="h-1 w-1 rounded-full bg-amber-400 animate-blink-soft" />
+          <span className="flex shrink-0 items-center gap-1 rounded bg-warn/10 px-1.5 py-0.5 text-[10px] font-semibold text-warn">
+            <span className="h-1 w-1 rounded-full bg-warn animate-blink-soft" />
             АВАРИЯ
           </span>
         ) : null}
@@ -80,7 +80,7 @@ const StatusCard: React.FC<Props> = ({ stageKey, label, readings, hasAlert, isEm
                 <span className="truncate">{METRIC_LABELS[r.metric] ?? r.metric.replace(/_/g, ' ')}</span>
               </span>
               <span
-                className={`num shrink-0 font-mono text-[14px] font-semibold ${r.alert ? 'text-red-400' : 'text-ink'}`}
+                className={`num shrink-0 font-mono text-[14px] font-semibold ${r.alert ? 'text-alarm' : 'text-ink'}`}
               >
                 {r.value.toFixed(2)}
                 <span className="ml-1 text-[10px] font-normal text-dim">{r.unit}</span>

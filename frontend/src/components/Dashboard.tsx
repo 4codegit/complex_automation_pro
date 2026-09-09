@@ -49,6 +49,9 @@ const Dashboard: React.FC = () => {
   const { readings, emergency, connected, alerts, sendEmergency, stopEmergency } = useWebSocket();
   const { stageOrder, gateways, loading, error, reload } = useRegistry();
   const [page, setPage] = useState<Page>(readPage);
+  const [theme, setTheme] = useState<'light' | 'dark'>(
+    () => (document.documentElement.dataset.theme as 'light' | 'dark') ?? 'light',
+  );
 
   useEffect(() => {
     const onHash = () => setPage(readPage());
@@ -112,11 +115,32 @@ const Dashboard: React.FC = () => {
           ))}
         </nav>
 
-        <div className="border-t border-line px-4 py-3 text-[10px] text-dim">
+        <div className="space-y-2 border-t border-line px-4 py-3 text-[10px] text-dim">
           <span className="flex items-center gap-1.5">
-            <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-500 animate-blink-soft'}`} />
+            <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-ok' : 'bg-red-500 animate-blink-soft'}`} />
             {connected ? 'канал данных активен' : 'переподключение…'}
           </span>
+          <button
+            onClick={() => {
+              const next = theme === 'light' ? 'dark' : 'light';
+              document.documentElement.dataset.theme = next;
+              localStorage.setItem('cap.theme', next);
+              setTheme(next);
+            }}
+            className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:text-ink"
+            title="Переключить тему"
+          >
+            {theme === 'light' ? (
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36A5.39 5.39 0 0 1 12 3z" />
+              </svg>
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5v3m0 14v3M2 12h3m14 0h3M4.2 4.2l2.1 2.1m11.4 11.4 2.1 2.1M19.8 4.2l-2.1 2.1M6.3 17.7l-2.1 2.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
+            тема: {theme === 'light' ? 'светлая' : 'тёмная'}
+          </button>
         </div>
       </aside>
 
@@ -126,7 +150,7 @@ const Dashboard: React.FC = () => {
         <header className="sticky top-0 z-40 flex h-12 items-center gap-4 border-b border-line bg-base/85 px-5 backdrop-blur">
           <h1 className="text-[13px] font-semibold">{activeLabel}</h1>
           {isEmergencyActive && (
-            <span className="flex items-center gap-1.5 rounded border border-red-500/40 bg-red-950/40 px-2 py-0.5 text-[10px] font-semibold text-red-300">
+            <span className="flex items-center gap-1.5 rounded border border-alarm/40 bg-alarm/10 px-2 py-0.5 text-[10px] font-semibold text-alarm">
               <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-blink-soft" />
               АВАРИЙНЫЙ РЕЖИМ
             </span>
@@ -134,16 +158,16 @@ const Dashboard: React.FC = () => {
           <div className="ml-auto flex items-center gap-3 text-[10.5px]">
             {gateways.map((g) => (
               <span key={g.id} className="flex items-center gap-1.5 text-mute" title={`буфер: ${g.buffer_size}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${g.status === 'online' ? 'bg-emerald-400' : 'bg-red-500 animate-blink-soft'}`} />
+                <span className={`h-1.5 w-1.5 rounded-full ${g.status === 'online' ? 'bg-ok' : 'bg-red-500 animate-blink-soft'}`} />
                 <span className="font-mono">{g.id}</span>
-                {g.buffer_size > 0 && <span className="text-amber-400">+{g.buffer_size}</span>}
+                {g.buffer_size > 0 && <span className="text-warn">+{g.buffer_size}</span>}
               </span>
             ))}
             {!loading && !error && gateways.length === 0 && <span className="text-dim">шлюзы не на пульсе</span>}
             {loading ? (
               <span className="text-dim">реестр…</span>
             ) : error ? (
-              <button onClick={reload} className="text-red-400 underline decoration-dotted">реестр: ошибка</button>
+              <button onClick={reload} className="text-alarm underline decoration-dotted">реестр: ошибка</button>
             ) : (
               <span className="hidden text-dim lg:inline">реестр {stageOrder.length} уч.</span>
             )}

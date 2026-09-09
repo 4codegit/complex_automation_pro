@@ -23,14 +23,14 @@ const AlertLog: React.FC<Props> = ({ alerts }) => {
             return (
               <div
                 key={i}
-                className="flex items-center gap-2.5 rounded border border-red-500/20 bg-red-950/20 px-2.5 py-1.5"
+                className="flex items-center gap-2.5 rounded border border-alarm/20 bg-alarm/10 px-2.5 py-1.5"
               >
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500 animate-blink-soft" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[11px] font-semibold text-red-200">
+                  <p className="truncate text-[11px] font-semibold text-alarm">
                     {meta?.label ?? a.stage}
                     <span className="mx-1.5 text-dim">/</span>
-                    <span className="text-red-300">{METRIC_LABELS[a.metric] ?? a.metric.replace(/_/g, ' ')}</span>
+                    <span className="text-alarm">{METRIC_LABELS[a.metric] ?? a.metric.replace(/_/g, ' ')}</span>
                   </p>
                   <p className="num text-[10px] text-mute">
                     значение <span className="font-mono text-ink">{a.value.toFixed(2)} {a.unit}</span>
