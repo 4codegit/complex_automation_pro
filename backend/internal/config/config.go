@@ -23,6 +23,10 @@ type Settings struct {
 	DefaultLimit  int
 	MaxLimit      int
 	DBPathDefault string
+	// EventSinks are URLs that receive every accepted live event (fire and
+	// forget). In split mode the ingest service forwards dashboard events to
+	// the live service's /internal/events endpoint; empty in all-in-one mode.
+	EventSinks []string
 }
 
 // Load reads .env from the given path (ignored if missing) and then environment
@@ -42,6 +46,7 @@ func Load(envPath string) (*Settings, error) {
 		DefaultLimit:  getInt("DEFAULT_LIMIT", 100),
 		MaxLimit:      getInt("MAX_LIMIT", 1000),
 		DBPathDefault: "cap.db",
+		EventSinks:    splitList(get("EVENT_SINKS", "")),
 	}
 	if err := s.validate(); err != nil {
 		return nil, err
@@ -100,6 +105,17 @@ func getDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+// splitList parses a comma-separated env value into clean non-empty items.
+func splitList(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // loadDotEnv reads a simple KEY=VALUE file into the process environment without

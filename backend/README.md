@@ -8,17 +8,27 @@ PostgreSQL for production, both via the same code).
 ## Layout
 
 ```
-cmd/server/      HTTP API: push ingestion, pull queries, registry, alarms,
-                 WebSocket live fan-out, development simulator
+cmd/server/      all-in-one development bundle: every route section in one
+                 process (dev convenience, same code as the services)
+cmd/gateway-api/ split-mode entry point: reverse proxy routing /api/v1 and
+                 the dashboard to the microservices (no DB of its own)
+cmd/live/        live service: SPA, WebSocket fan-out, simulator, event intake
+cmd/ingest/      ingest service: push ingestion (telemetry, gateway events)
+cmd/historian/   historian service: history, latest, aggregates, CSV reports
+cmd/alarms/      alarm service: active alarms, ack, rationalised limits
+cmd/profiles/    profile service: ore profile change control
+cmd/registry/    registry service: assets, tags, gateway registry
+cmd/identity/    identity service: RBAC, assignments, audit trail
 cmd/gateway/     edge collector: sensor polling, canonical normalization,
                  store-and-forward buffer (SQLite/WAL), batch delivery with
                  exponential backoff, heartbeat pulse, backfill on recovery
 internal/
-  config/        settings + .env loader
+  config/        settings + .env loader (+ EVENT_SINKS)
   schema/        canonical telemetry contract + validation (shared by gateway)
   store/         database: open by DSN, portable migrations, models, repository
   hub/           in-process pub/sub for live dashboard events
-  api/           HTTP handlers, router (standard library mux), WebSocket
+  api/           HTTP handlers, sectioned router (standard library mux), WS
+  service/       shared composition root for every deployable
   simulator/     deterministic demo telemetry generator
   gateway/       edge collector subsystem (buffer, sender, pulse, simulated sensor)
 ```
@@ -76,6 +86,28 @@ drive breach detection, and it maintains/clears alarm states automatically.
 Demo of the failure mode (see `demo.sh`): server up → gateway streams →
 server killed → gateway keeps polling and buffering → server restarted →
 gateway backfills the whole outage window, nothing is lost.
+
+## Split mode (microservices)
+
+The same codebase deploys as independent processes. `api.Routes` takes route
+sections (`ingest`, `historian`, `alarms`, `profiles`, `registry`, `identity`,
+`live`); each `cmd/<service>` binary mounts exactly one, `cmd/server` mounts
+all of them. `cmd/gateway-api` fronts the services on a single address; the
+ingest service forwards accepted readings to the live service over
+`EVENT_SINKS` so the dashboard keeps its real-time feed.
+
+```bash
+cd backend
+scripts/services.sh start   # live(:8001) → ingest/historian/alarms/profiles/
+                            # registry/identity (:8002-8007) → gateway-api(:8000)
+scripts/services.sh status  # running services
+scripts/services.sh stop    # stop everything
+```
+
+Services share the database (`CAP_DB_URL`, default `sqlite://.run/cap.db` —
+SQLite/WAL with busy_timeout is multi-process safe); the live service starts
+first and owns migrations/seeds. `gateway-api` upstreams are overridable per
+service (`INGEST_UPSTREAM`, `HISTORIAN_UPSTREAM`, ...).
 
 ## Test
 

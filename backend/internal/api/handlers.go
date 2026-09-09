@@ -3,11 +3,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -270,8 +273,50 @@ func (s *Server) ingestOne(ctx context.Context, t *schema.Telemetry) (schema.Ing
 		return schema.IngestItemResult{}, &httpError{http.StatusInternalServerError, "internal", err.Error()}
 	}
 
-	s.hub.Broadcast(s.liveEvent(tag, reading))
+	s.publishLive(tag, reading)
 	return schema.IngestItemResult{MessageID: t.MessageID, Status: schema.StatusAccepted}, nil
+}
+
+// publishLive fans an accepted reading out to dashboards: in-process hub
+// subscribers first, then every configured cross-service event sink (the live
+// service in split mode, see EVENT_SINKS).
+func (s *Server) publishLive(tag *store.Tag, r *store.Reading) {
+	ev := s.liveEvent(tag, r)
+	s.hub.Broadcast(ev)
+	s.forwardLiveEvent(ev)
+}
+
+var sinkClient = &http.Client{Timeout: 2 * time.Second}
+
+// forwardLiveEvent delivers the event to every sink, best effort: a slow or
+// down sink must never block or fail ingestion.
+func (s *Server) forwardLiveEvent(body []byte) {
+	for _, sink := range s.cfg.EventSinks {
+		go func(u string) {
+			resp, err := sinkClient.Post(u, "application/json", bytes.NewReader(body))
+			if err != nil {
+				log.Printf("event sink %s unreachable: %v", u, err)
+				return
+			}
+			resp.Body.Close()
+		}(sink)
+	}
+}
+
+// InternalEvent accepts a forwarded live event (from the ingest service in
+// split mode) and broadcasts it to this process's WebSocket subscribers.
+func (s *Server) InternalEvent(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "malformed", "event body too large or unreadable")
+		return
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		writeProblem(w, http.StatusBadRequest, "empty", "event body is required")
+		return
+	}
+	s.hub.Broadcast(body)
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "broadcast"})
 }
 
 // liveEvent exposes a stable dashboard event without leaking gateway internals.
