@@ -75,7 +75,7 @@ func TestSectionRoutingIsolatesDomains(t *testing.T) {
 		},
 		{
 			section: "historian",
-			allowed: []string{"/api/v1/telemetry", "/api/v1/reports/readings/csv"},
+			allowed: []string{"/api/v1/telemetry", "/api/v1/analytics/process", "/api/v1/reports/readings/csv"},
 			foreign: []string{"/api/v1/profiles", "/api/v1/tags"},
 		},
 		{

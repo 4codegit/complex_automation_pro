@@ -62,6 +62,7 @@ func (s *Server) Routes(sections ...string) http.Handler {
 		mux.HandleFunc("GET /api/v1/telemetry", s.TelemetryHistory)
 		mux.HandleFunc("GET /api/v1/telemetry/latest", s.TelemetryLatest)
 		mux.HandleFunc("GET /api/v1/telemetry/aggregate", s.TelemetryAggregate)
+		mux.HandleFunc("GET /api/v1/analytics/process", s.ProcessAnalytics)
 		mux.HandleFunc("GET /api/v1/alerts", s.ListAlerts)
 		mux.HandleFunc("GET /api/v1/alerts/latest", s.LatestAlert)
 		mux.HandleFunc("GET /api/v1/reports/readings/csv", s.ExportReadingsCSV)

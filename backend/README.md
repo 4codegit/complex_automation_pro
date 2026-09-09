@@ -52,6 +52,7 @@ frontend into `internal/web/web` (see "Frontend" below).
 | POST | `/api/v1/ingest/gateway_events` | edge gateway heartbeat (pulse/online/offline, buffer depth, latency) |
 | GET | `/api/v1/gateways` | registered gateways with last known state |
 | GET | `/api/v1/telemetry/aggregate` | downsample numerics into buckets (`resolution=30s\|1m\|5m\|1h\|1d`, `agg=avg\|min\|max\|sum\|count\|last`) |
+| GET | `/api/v1/analytics/process` | derived metallurgical KPIs: percent solids from pulp density, specific reagent consumption, dry throughput, profile-corridor statuses (formulas exposed per KPI) |
 | GET | `/api/v1/alarms/active` | current ISA-18.2-style alarm states |
 | POST | `/api/v1/alarms/{id}/ack` | acknowledge an alarm (`{"ack_by": ..., "comment": ...}`) |
 | GET | `/api/v1/profiles` | ore profiles, newest first |

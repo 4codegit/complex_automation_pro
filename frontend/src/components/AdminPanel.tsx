@@ -44,6 +44,23 @@ type TelemetryState = 'idle' | 'loading' | 'ready' | 'error';
 
 const API_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000/api/v1`;
 
+// Sensor type presets: picking one prefills the unit (and documents the
+// typical instrument family) so an operator registers a "temperature sensor",
+// not a bare tag id.
+const SENSOR_TYPES: { id: string; label: string; unit: string; hint: string }[] = [
+  { id: 'temperature', label: 'Температура', unit: 'C', hint: 'термопара, RTD' },
+  { id: 'ph', label: 'pH (кислотность)', unit: 'pH', hint: 'pH-электрод' },
+  { id: 'density', label: 'Плотность', unit: 'g/cm3', hint: 'плотномер' },
+  { id: 'level', label: 'Уровень', unit: '%', hint: 'радарный / ультразвук' },
+  { id: 'moisture', label: 'Влажность', unit: '%', hint: 'NIR / микроволновый' },
+  { id: 'massflow', label: 'Массовый расход', unit: 't/h', hint: 'конвейерные весы' },
+  { id: 'volumeflow', label: 'Объёмный расход', unit: 'm3/h', hint: 'электромагнитный' },
+  { id: 'pressure', label: 'Давление', unit: 'bar', hint: 'тензодатчик' },
+  { id: 'vibration', label: 'Вибрация', unit: 'mm/s', hint: 'акселерометр' },
+  { id: 'current', label: 'Ток', unit: 'A', hint: 'трансформатор тока' },
+  { id: 'custom', label: 'Свой тип…', unit: '', hint: '' },
+];
+
 const QUALITY_LABELS: Record<string, string> = {
   good: 'Годные',
   uncertain: 'Неопределённые',
@@ -127,7 +144,7 @@ const AdminPanel: React.FC = () => {
   // Sensors tab: actor for the audit trail + add-form state.
   const [actor, setActor] = useState('admin');
   const [newAsset, setNewAsset] = useState({ id: '', name: '', area: '', criticality: 'M' });
-  const [newTag, setNewTag] = useState({ assetId: '', id: '', name: '', unit: '' });
+  const [newTag, setNewTag] = useState({ assetId: '', id: '', name: '', unit: '', sensorType: 'temperature' });
   const [mutationState, setMutationState] = useState<'idle' | 'busy'>('idle');
   const [mutationNote, setMutationNote] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -535,6 +552,32 @@ const AdminPanel: React.FC = () => {
                     <option key={asset.id} value={asset.id}>{asset.name} ({asset.id})</option>
                   ))}
                 </select>
+              </label>
+              <label className="text-sm text-ink">
+                Тип датчика
+                <select
+                  value={newTag.sensorType}
+                  onChange={(event) => {
+                    const preset = SENSOR_TYPES.find((t) => t.id === event.target.value);
+                    setNewTag({
+                      ...newTag,
+                      sensorType: event.target.value,
+                      unit: preset && preset.unit ? preset.unit : newTag.unit,
+                      name: newTag.name || (preset && preset.id !== 'custom' ? preset.label : newTag.name),
+                    });
+                  }}
+                  className="mt-1 h-9 w-full rounded border border-line bg-base px-2 text-sm text-ink outline-none focus:border-accent/60"
+                >
+                  {SENSOR_TYPES.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}{t.unit ? ` (${t.unit})` : ''}</option>
+                  ))}
+                </select>
+                {(() => {
+                  const preset = SENSOR_TYPES.find((t) => t.id === newTag.sensorType);
+                  return preset && preset.hint ? (
+                    <span className="mt-1 block text-[10px] text-dim">{preset.hint}</span>
+                  ) : null;
+                })()}
               </label>
               <label className="text-sm text-ink">
                 Идентификатор тега
