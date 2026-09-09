@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -12,6 +12,7 @@ import { TelemetryReading } from '../hooks/useWebSocket';
 import { METRIC_LABELS } from './StatusCard';
 
 const MAX_POINTS = 60;
+const API_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000/api/v1`;
 
 const COLORS: Record<string, string> = {
   particle_size: '#818cf8',
@@ -31,6 +32,39 @@ interface Props {
 const LiveChart: React.FC<Props> = ({ readings }) => {
   // Accumulate time-series data points per metric
   const seriesRef = React.useRef<Map<string, { ts: number; value: number }[]>>(new Map());
+  const [seedVersion, setSeedVersion] = useState(0);
+  const [seededMetrics, setSeededMetrics] = useState<string[]>([]);
+
+  // Seed the chart from the historian so recent history is visible even when
+  // the live source is currently offline; WebSocket events append on top.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/telemetry?limit=600`, { headers: { Accept: 'application/json' } })
+      .then((r) => r.json())
+      .then((rows: Array<{ tag_id: string; value: number; observed_at: string; quality: string }>) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        for (const row of rows.slice().reverse()) { // oldest first
+          if (row.quality === 'offline' || row.quality === 'stale') continue;
+          const value = Number(row.value);
+          if (!Number.isFinite(value)) continue;
+          const metric = String(row.tag_id).split('.').pop() || row.tag_id;
+          const ts = new Date(row.observed_at).getTime();
+          let arr = seriesRef.current.get(metric);
+          if (!arr) {
+            arr = [];
+            seriesRef.current.set(metric, arr);
+            setSeededMetrics((prev) => (prev.includes(metric) ? prev : [...prev, metric]));
+          }
+          if (arr.length === 0 || arr[arr.length - 1].ts !== ts) {
+            arr.push({ ts, value });
+            if (arr.length > MAX_POINTS) arr.shift();
+          }
+        }
+        setSeedVersion((v) => v + 1);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   readings.forEach((r, metric) => {
     // Gap qualities carry no signal (value is a placeholder): plotting them
@@ -47,6 +81,11 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
       if (arr.length > MAX_POINTS) arr.shift();
     }
   });
+
+  const metrics = useMemo(
+    () => Array.from(new Set([...seededMetrics, ...readings.keys()])),
+    [seededMetrics, readings],
+  );
 
   const chartData = useMemo(() => {
     const allTimestamps = new Set<number>();
@@ -65,9 +104,7 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
       });
       return point;
     });
-  }, [readings]);
-
-  const metrics = Array.from(readings.keys());
+  }, [readings, seedVersion]);
 
   return (
     <div className="rounded-lg border border-line bg-panel p-3.5">
@@ -86,32 +123,32 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
       </div>
       <ResponsiveContainer width="100%" height={252}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-          <CartesianGrid strokeDasharray="2 4" stroke="var(--c-grid)" vertical={false} />
+          <CartesianGrid strokeDasharray="2 4" stroke="rgb(var(--c-grid))" vertical={false} />
           <XAxis
             dataKey="time"
-            tick={{ fontSize: 10, fill: 'var(--c-dim)' }}
+            tick={{ fontSize: 10, fill: 'rgb(var(--c-dim))' }}
             interval="preserveStartEnd"
             minTickGap={48}
-            axisLine={{ stroke: 'var(--c-line)' }}
+            axisLine={{ stroke: 'rgb(var(--c-line))' }}
             tickLine={false}
           />
           <YAxis
-            tick={{ fontSize: 10, fill: 'var(--c-dim)' }}
+            tick={{ fontSize: 10, fill: 'rgb(var(--c-dim))' }}
             width={44}
             axisLine={false}
             tickLine={false}
           />
           <Tooltip
-            cursor={{ stroke: 'var(--c-dim)', strokeDasharray: '3 3' }}
+            cursor={{ stroke: 'rgb(var(--c-dim))', strokeDasharray: '3 3' }}
             contentStyle={{
-              backgroundColor: 'var(--c-panel)',
-              border: '1px solid var(--c-line)',
+              backgroundColor: 'rgb(var(--c-panel))',
+              border: '1px solid rgb(var(--c-line))',
               borderRadius: 8,
               fontSize: 11,
               padding: '6px 10px',
-              color: 'var(--c-ink)',
+              color: 'rgb(var(--c-ink))',
             }}
-            labelStyle={{ color: 'var(--c-mute)', marginBottom: 2 }}
+            labelStyle={{ color: 'rgb(var(--c-mute))', marginBottom: 2 }}
             itemStyle={{ padding: 0 }}
           />
           {metrics.map((m) => (
