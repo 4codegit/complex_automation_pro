@@ -7,11 +7,12 @@ import AlertModal from '../components/AlertModal';
 import InstructorPanel from '../components/InstructorPanel';
 import AlertLog from '../components/AlertLog';
 import AdminPanel from '../components/AdminPanel';
+import ControlPanel from '../components/ControlPanel';
 import AlarmPanel from '../components/AlarmPanel';
 import ProfilesPanel from '../components/ProfilesPanel';
 import AnalyticsPanel from '../components/AnalyticsPanel';
 
-type Page = 'overview' | 'analytics' | 'alarms' | 'profiles' | 'settings' | 'instructor';
+type Page = 'overview' | 'analytics' | 'control' | 'alarms' | 'profiles' | 'settings' | 'instructor';
 
 const PAGES: { id: Page; label: string; icon: JSX.Element }[] = [
   {
@@ -21,6 +22,10 @@ const PAGES: { id: Page; label: string; icon: JSX.Element }[] = [
   {
     id: 'analytics', label: 'Аналитика',
     icon: <path d="M4 20h16v1.5H4V20zM6 16h2.5v3H6v-3zm4.75-6h2.5v9h-2.5v-9zM15.5 4H18v15h-2.5V4z" />,
+  },
+  {
+    id: 'control', label: 'Управление',
+    icon: <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 5.5 2.5 2.5 5.5-5.5-1.4-1.4-4.1 4.1-1.8-1.8L12 18.5z" />,
   },
   {
     id: 'alarms', label: 'Аварии',
@@ -201,6 +206,8 @@ const Dashboard: React.FC = () => {
           )}
 
           {page === 'analytics' && <AnalyticsPanel />}
+
+          {page === 'control' && <ControlPanel />}
 
           {page === 'alarms' && (
             <section className="grid grid-cols-1 gap-3 lg:grid-cols-3">

@@ -34,10 +34,10 @@ type RoleAssignment struct {
 var systemRoles = []Role{
 	{ID: "director", Label: "Director", Permissions: []string{"view_all", "view_reports", "approve_profiles"}, System: true},
 	{ID: "metallurgist", Label: "Chief metallurgist", Permissions: []string{"view_all", "manage_profiles", "review_alarms", "rationalise_alarms"}, System: true},
-	{ID: "operator", Label: "Operator", Permissions: []string{"view_assigned_area", "acknowledge_alarms"}, System: true},
+	{ID: "operator", Label: "Operator", Permissions: []string{"view_assigned_area", "acknowledge_alarms", "control_process"}, System: true},
 	{ID: "ot_engineer", Label: "OT engineer", Permissions: []string{"view_all", "manage_tags", "manage_gateways"}, System: true},
 	{ID: "maintenance", Label: "Maintenance", Permissions: []string{"view_assets", "view_condition_signals"}, System: true},
-	{ID: "platform_admin", Label: "Platform administrator", Permissions: []string{"manage_users", "manage_roles", "manage_platform", "view_all"}, System: true},
+	{ID: "platform_admin", Label: "Platform administrator", Permissions: []string{"manage_users", "manage_roles", "manage_platform", "view_all", "control_process"}, System: true},
 }
 
 // SeedRoles inserts the system roles when the table is empty, and bootstraps

@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// DefaultControlLoop is the demo pH loop: PV is the flotation pH tag, the
+// output drives the doser register the gateway writes. Plants override it.
+const DefaultControlLoop = "pv=plant-a.flotation.ph_level,out=plant-a.flotation.doser_speed,kp=2,ki=0.4,kd=0,deadband=0.1,slew=5"
+
 // Settings holds all runtime configuration for CAP.
 type Settings struct {
 	Environment   string
@@ -27,6 +31,12 @@ type Settings struct {
 	// forget). In split mode the ingest service forwards dashboard events to
 	// the live service's /internal/events endpoint; empty in all-in-one mode.
 	EventSinks []string
+	// Supervisory control (ADR-003): OFF by default. Enabling CONTROL_ENABLED
+	// turns the platform into a closed-loop supervisor — a deliberate,
+	// separately-approved step that crosses the read-only boundary.
+	ControlEnabled bool
+	ControlLoop    string
+	ControlStale   time.Duration // PV watchdog: older than this pauses the loop
 }
 
 // Load reads .env from the given path (ignored if missing) and then environment
@@ -35,18 +45,21 @@ func Load(envPath string) (*Settings, error) {
 	loadDotEnv(envPath)
 
 	s := &Settings{
-		Environment:   get("ENVIRONMENT", "development"),
-		HTTPAddr:      get("HTTP_ADDR", "127.0.0.1:8000"),
-		DBURL:         get("DB_URL", "sqlite://./cap.db"),
-		SimulatorOn:   getBool("SIMULATOR_ENABLED", true),
-		SimInterval:   getDuration("SIMULATOR_INTERVAL", 1*time.Second),
-		EmergencySec:  getDuration("EMERGENCY_DURATION", 15*time.Second),
-		StalenessSec:  getDuration("STALENESS_SECONDS", 60*time.Second),
-		MaxBatchSize:  getInt("INGEST_MAX_BATCH", 500),
-		DefaultLimit:  getInt("DEFAULT_LIMIT", 100),
-		MaxLimit:      getInt("MAX_LIMIT", 1000),
-		DBPathDefault: "cap.db",
-		EventSinks:    splitList(get("EVENT_SINKS", "")),
+		Environment:    get("ENVIRONMENT", "development"),
+		HTTPAddr:       get("HTTP_ADDR", "127.0.0.1:8000"),
+		DBURL:          get("DB_URL", "sqlite://./cap.db"),
+		SimulatorOn:    getBool("SIMULATOR_ENABLED", true),
+		SimInterval:    getDuration("SIMULATOR_INTERVAL", 1*time.Second),
+		EmergencySec:   getDuration("EMERGENCY_DURATION", 15*time.Second),
+		StalenessSec:   getDuration("STALENESS_SECONDS", 60*time.Second),
+		MaxBatchSize:   getInt("INGEST_MAX_BATCH", 500),
+		DefaultLimit:   getInt("DEFAULT_LIMIT", 100),
+		MaxLimit:       getInt("MAX_LIMIT", 1000),
+		DBPathDefault:  "cap.db",
+		EventSinks:     splitList(get("EVENT_SINKS", "")),
+		ControlEnabled: getBool("CONTROL_ENABLED", false),
+		ControlLoop:    get("CONTROL_LOOP", DefaultControlLoop),
+		ControlStale:   getDuration("CONTROL_STALE", 15*time.Second),
 	}
 	if err := s.validate(); err != nil {
 		return nil, err

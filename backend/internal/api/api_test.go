@@ -62,6 +62,8 @@ func newTestEnv(t *testing.T) *testEnv {
 		MaxBatchSize: 500,
 		DefaultLimit: 100,
 		MaxLimit:     1000,
+		ControlLoop:  config.DefaultControlLoop,
+		ControlStale: 15 * time.Second,
 	}
 	srv := api.New(db, h, sim, cfg)
 	ts := httptest.NewServer(srv.Routes())

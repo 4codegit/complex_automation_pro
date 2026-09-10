@@ -249,3 +249,26 @@ The simulator/ingest alarm engine is not yet wired to read from
 moves alarms out of the per-tick path. Storing the configuration now means the
 rationalisation workflow can be exercised and approved before the engine
 consumes it.
+
+## ADR-003: Supervisory control — opt-in closed loop (2026-09-10)
+
+Status: accepted (deliberate revision of the read-only boundary). Scope:
+`internal/control`, `internal/api/handlers_control.go`, gateway write bridge
+`internal/gateway/control.go`.
+
+The platform gains an opt-in supervisory control loop. The operator sets a
+setpoint; the server runs a PID over fresh telemetry and publishes the output;
+the edge gateway writes it into exactly ONE Modbus holding register (FC6).
+Real-time control stays in the PLC/actuator layer — CAP is a supervisor, not a
+controller.
+
+Safety properties (all mandatory):
+- `CONTROL_ENABLED=false` by default on both server and gateway; disabled =
+  no loop, no writes, endpoints report off.
+- Setpoints are clamped to the active ore-profile corridor before storage.
+- PV watchdog: stale process data pauses the loop and forces output to 0.
+- Output clamp 0..100%, integral anti-windup, deadband, per-tick slew limit.
+- The gateway writes only when the loop reports `auto`; one register, one
+  write path, loudly logged at startup.
+- Every setpoint change requires `control_process` permission and lands in
+  the immutable audit log.

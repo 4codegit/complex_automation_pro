@@ -87,6 +87,11 @@ func Run(o Options) error {
 		sim.Start(appCtx)
 		log.Printf("simulator enabled (interval=%s)", cfg.SimInterval)
 	}
+	// Supervisory control (ADR-003): opt-in. The PID loop runs where the
+	// simulator/live hub runs; the gateway translates output into writes.
+	if cfg.ControlEnabled && ownsSim {
+		srv.StartControlLoop(appCtx)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,

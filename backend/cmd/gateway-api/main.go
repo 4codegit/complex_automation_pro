@@ -47,6 +47,8 @@ var routes = []route{
 	{"/api/v1/access/", "IDENTITY_UPSTREAM", "http://127.0.0.1:8007"},
 	{"/api/v1/ws", "LIVE_UPSTREAM", "http://127.0.0.1:8001"},
 	{"/api/v1/simulator/", "LIVE_UPSTREAM", "http://127.0.0.1:8001"},
+	{"/api/v1/control", "LIVE_UPSTREAM", "http://127.0.0.1:8001"},
+	{"/api/v1/control/", "LIVE_UPSTREAM", "http://127.0.0.1:8001"},
 	{"/api/v1/health", "LIVE_UPSTREAM", "http://127.0.0.1:8001"},
 	{"/", "LIVE_UPSTREAM", "http://127.0.0.1:8001"}, // dashboard SPA
 }

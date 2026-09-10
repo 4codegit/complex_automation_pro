@@ -159,6 +159,29 @@ var migrations = []string{
 		UNIQUE (subject, role_id)
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_role_assignments_subject ON role_assignments (subject)`,
+	// Supervisory control (opt-in, ADR-003): operator-approved setpoints for
+	// closed-loop control. The loop state row is what the edge gateway reads
+	// and writes to the actuator; status is "auto" only while the watchdog is
+	// satisfied (fresh PV, control enabled).
+	`CREATE TABLE IF NOT EXISTS control_setpoints (
+		tag_id TEXT PRIMARY KEY,
+		value REAL NOT NULL,
+		updated_by TEXT NOT NULL DEFAULT '',
+		updated_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS control_state (
+		tag_id TEXT PRIMARY KEY,
+		output REAL NOT NULL DEFAULT 0,
+		status TEXT NOT NULL DEFAULT 'off',
+		integral REAL NOT NULL DEFAULT 0,
+		prev_error REAL,
+		updated_at TEXT NOT NULL
+	)`,
+	// Grant the control permission to the roles that already exist in
+	// pre-migration databases (SeedRoles only runs on an empty table).
+	`UPDATE roles SET permissions = permissions || ',control_process'
+	 WHERE id IN ('platform_admin', 'operator')
+	 AND permissions NOT LIKE '%control_process%'`,
 }
 
 // Migrate applies pending migrations in a transaction.

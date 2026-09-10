@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -58,6 +59,17 @@ func (r *Runner) Run(ctx context.Context) error {
 	startPoll(ctx, r.cfg, r.buf, r.source)
 	go r.sender.Run(ctx, r.buf)
 	go r.pulse.Run(ctx)
+
+	// Supervisory control write bridge (ADR-003): opt-in via CONTROL_ENABLED.
+	// When enabled, this gateway is no longer strictly read-only — it writes
+	// exactly one holding register driven by the server's loop output.
+	if r.cfg.ControlEnabled {
+		bridge, err := NewControlWriteBridge(r.cfg)
+		if err != nil {
+			return fmt.Errorf("control bridge: %w", err)
+		}
+		go bridge.Run(ctx)
+	}
 
 	<-ctx.Done()
 	log.Printf("[gateway] shutting down")

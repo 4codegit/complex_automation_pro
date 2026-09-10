@@ -114,6 +114,11 @@ func (s *Server) Routes(sections ...string) http.Handler {
 	if has("live") {
 		// Live dashboard
 		mux.HandleFunc("GET /api/v1/ws", s.WebSocket)
+		// Supervisory control (ADR-003): opt-in via CONTROL_ENABLED; setpoint
+		// writes require the control_process permission and are audited.
+		mux.HandleFunc("GET /api/v1/control/status", s.ControlStatus)
+		mux.HandleFunc("PUT /api/v1/control/setpoints", s.ControlSetSetpoint)
+		mux.HandleFunc("GET /api/v1/control/output", s.ControlOutput)
 		// Cross-service event intake: the ingest service forwards accepted
 		// readings here so WebSocket subscribers keep their live feed in
 		// split mode (EVENT_SINKS on the ingest side).

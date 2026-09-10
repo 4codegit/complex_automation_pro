@@ -87,6 +87,10 @@ type Manager struct {
 	count         int64
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
+
+	// Demo plant memory for the control-loop model (pH node).
+	simPH     float64
+	simPHInit bool
 }
 
 // New creates a simulator manager.
@@ -237,6 +241,27 @@ func (m *Manager) tick(ctx context.Context) error {
 				value = 15.0 + mathrand.NormFloat64()*0.3
 			case "ph_level":
 				value = 5.0 + mathrand.NormFloat64()*0.15
+			}
+		}
+		// Demo plant model: when a control loop is driving the doser, pH
+		// drifts upward on its own and reagent dosing pulls it back down —
+		// so a closed PID loop is visible on the panel. Development only.
+		if metric == "ph_level" && !emergency {
+			if out, active := m.plantDoserOutput(ctx); active {
+				if !m.simPHInit {
+					m.simPH = value
+					m.simPHInit = true
+				}
+				m.simPH -= 0.01
+				m.simPH += (out / 100) * 0.15
+				m.simPH += mathrand.NormFloat64() * 0.02
+				if m.simPH < 6.0 {
+					m.simPH = 6.0
+				}
+				if m.simPH > 12.0 {
+					m.simPH = 12.0
+				}
+				value = m.simPH
 			}
 		}
 		value = math.Round(value*1000) / 1000
@@ -428,4 +453,19 @@ func metricOf(tagID string) string {
 
 func trimFloat(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+// plantDoserOutput reports the output of an active control loop, if any.
+// The demo plant reacts to the doser: pH drifts up and dosing pulls it down,
+// which makes a closed PID loop visible on the panel during development.
+func (m *Manager) plantDoserOutput(ctx context.Context) (float64, bool) {
+	var output float64
+	var status string
+	err := m.db.QueryRowContext(ctx,
+		`SELECT output, status FROM control_state WHERE status = 'auto' LIMIT 1`,
+	).Scan(&output, &status)
+	if err != nil {
+		return 0, false
+	}
+	return output, true
 }

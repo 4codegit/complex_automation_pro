@@ -29,6 +29,7 @@ var permissionRequired = map[string]string{
 	"DELETE /api/v1/access/roles/{id}":      "manage_roles",
 	"POST /api/v1/access/assignments":       "manage_users",
 	"DELETE /api/v1/access/assignments":     "manage_users",
+	"PUT /api/v1/control/setpoints":         "control_process",
 }
 
 // permissionForRequest returns the permission a request requires, or "".
