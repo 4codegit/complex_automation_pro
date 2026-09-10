@@ -8,13 +8,18 @@ import InstructorPanel from '../components/InstructorPanel';
 import AlertLog from '../components/AlertLog';
 import AdminPanel from '../components/AdminPanel';
 import ControlPanel from '../components/ControlPanel';
+import SynopticPanel from '../components/SynopticPanel';
 import AlarmPanel from '../components/AlarmPanel';
 import ProfilesPanel from '../components/ProfilesPanel';
 import AnalyticsPanel from '../components/AnalyticsPanel';
 
-type Page = 'overview' | 'analytics' | 'control' | 'alarms' | 'profiles' | 'settings' | 'instructor';
+type Page = 'overview' | 'synoptic' | 'analytics' | 'control' | 'alarms' | 'profiles' | 'settings' | 'instructor';
 
 const PAGES: { id: Page; label: string; icon: JSX.Element }[] = [
+  {
+    id: 'synoptic', label: 'Мнемосхема',
+    icon: <path d="M3 6h8V3H3v3zm0 7.5h10v-3H3v3zM3 21h13v-3H3v3zM18 6.5 21 9l-3 2.5V6.5zM11 21h3v-3h-3v3z" />,
+  },
   {
     id: 'overview', label: 'Обзор',
     icon: <path d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-12h8V3h-8v6z" />,
@@ -47,7 +52,7 @@ const PAGES: { id: Page; label: string; icon: JSX.Element }[] = [
 
 const readPage = (): Page => {
   const hash = window.location.hash.replace('#', '') as Page;
-  return PAGES.some((p) => p.id === hash) ? hash : 'overview';
+  return PAGES.some((p) => p.id === hash) ? hash : 'synoptic';
 };
 
 const Dashboard: React.FC = () => {
@@ -180,6 +185,8 @@ const Dashboard: React.FC = () => {
         </header>
 
         <main className="mx-auto w-full max-w-[1280px] flex-1 space-y-3 px-5 py-4">
+          {page === 'synoptic' && <SynopticPanel />}
+
           {page === 'overview' && (
             <>
               <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
