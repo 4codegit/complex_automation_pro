@@ -31,7 +31,7 @@ interface Props {
 
 const LiveChart: React.FC<Props> = ({ readings }) => {
   // Accumulate time-series data points per metric
-  const seriesRef = React.useRef<Map<string, { ts: number; value: number }[]>>(new Map());
+  const seriesRef = React.useRef<Map<string, { ts: number; value: number | null }[]>>(new Map());
   const [seedVersion, setSeedVersion] = useState(0);
   const [seededMetrics, setSeededMetrics] = useState<string[]>([]);
 
@@ -44,9 +44,9 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
       .then((rows: Array<{ tag_id: string; value: number; observed_at: string; quality: string }>) => {
         if (cancelled || !Array.isArray(rows)) return;
         for (const row of rows.slice().reverse()) { // oldest first
-          if (row.quality === 'offline' || row.quality === 'stale') continue;
-          const value = Number(row.value);
-          if (!Number.isFinite(value)) continue;
+          const isGap = row.quality === 'offline' || row.quality === 'stale';
+          const value = isGap ? null : Number(row.value);
+          if (value !== null && !Number.isFinite(value)) continue;
           const metric = String(row.tag_id).split('.').pop() || row.tag_id;
           const ts = new Date(row.observed_at).getTime();
           let arr = seriesRef.current.get(metric);
@@ -67,9 +67,9 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
   }, []);
 
   readings.forEach((r, metric) => {
-    // Gap qualities carry no signal (value is a placeholder): plotting them
-    // would draw a fake zero line across the outage window.
-    if (r.quality === 'offline' || r.quality === 'stale') return;
+    // Gap qualities carry no signal (value is a placeholder): render them as
+    // line breaks on the time axis, never as a fake zero line.
+    const value = r.quality === 'offline' || r.quality === 'stale' ? null : r.value;
     let arr = seriesRef.current.get(metric);
     if (!arr) {
       arr = [];
@@ -77,7 +77,7 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
     }
     const ts = new Date(r.timestamp).getTime();
     if (arr.length === 0 || arr[arr.length - 1].ts !== ts) {
-      arr.push({ ts, value: r.value });
+      arr.push({ ts, value });
       if (arr.length > MAX_POINTS) arr.shift();
     }
   });
@@ -93,7 +93,7 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
     const sorted = Array.from(allTimestamps).sort((a, b) => a - b).slice(-MAX_POINTS);
 
     return sorted.map((ts) => {
-      const point: Record<string, number | string> = {
+      const point: Record<string, number | string | null> = {
         time: new Date(ts).toLocaleTimeString(),
       };
       seriesRef.current.forEach((arr, metric) => {
@@ -121,6 +121,12 @@ const LiveChart: React.FC<Props> = ({ readings }) => {
           ))}
         </div>
       </div>
+      {metrics.length === 0 && (
+        <div className="flex h-[252px] flex-col items-center justify-center gap-1 text-center">
+          <span className="text-[13px] font-semibold text-mute">Нет данных за последние точки</span>
+          <span className="text-[11px] text-dim">источник офлайн или история пуста — линии появятся с приходом телеметрии</span>
+        </div>
+      )}
       <ResponsiveContainer width="100%" height={252}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="2 4" stroke="rgb(var(--c-grid))" vertical={false} />
