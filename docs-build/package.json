@@ -1,0 +1,17 @@
+{
+  "name": "docs-build",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "docx": "^9.7.1",
+    "image-size": "^2.0.2",
+    "pptxgenjs": "^4.0.1"
+  }
+}
