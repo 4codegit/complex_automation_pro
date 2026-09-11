@@ -31,8 +31,8 @@ func NewRunner(cfg *Config, version string) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
-	sender := NewSender(cfg.ServerURL, cfg.MaxBatch, cfg.PushInterval)
-	pulse := NewPulse(cfg.ServerURL, cfg.ID, version, cfg.PulseInterval,
+	sender := NewSender(cfg.ServerURL, cfg.GatewayToken, cfg.MaxBatch, cfg.PushInterval)
+	pulse := NewPulse(cfg.ServerURL, cfg.GatewayToken, cfg.ID, version, cfg.PulseInterval,
 		func() int64 {
 			n, _ := buf.Len(context.Background())
 			return n

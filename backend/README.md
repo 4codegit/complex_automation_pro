@@ -1,151 +1,109 @@
-# CAP Go platform
+# CAP — АСУ ТП участка флотационного обогащения руды
 
-The production platform is written in Go (decision in `../ARCHITECTURE_DECISIONS.md`):
-one language for the edge gateway and the server, one static binary per service,
-no external services required for a demo (SQLite by default,
-PostgreSQL for production, both via the same code).
+SCADA-класс система оперативного диспетчерского контроля и управления: сбор
+телеметрии по **реальному Modbus TCP**, металлургический баланс, супервизорные
+ПИД-контуры, тревоги по ISA-18.2 и Web-HMI в духе ISA-101. Русский интерфейс.
 
-## Layout
+## Архитектура (модульный монолит + два внешних процесса)
 
 ```
-cmd/server/      all-in-one development bundle: every route section in one
-                 process (dev convenience, same code as the services)
-cmd/gateway-api/ split-mode entry point: reverse proxy routing /api/v1 and
-                 the dashboard to the microservices (no DB of its own)
-cmd/live/        live service: SPA, WebSocket fan-out, simulator, event intake
-cmd/ingest/      ingest service: push ingestion (telemetry, gateway events)
-cmd/historian/   historian service: history, latest, aggregates, CSV reports
-cmd/alarms/      alarm service: active alarms, ack, rationalised limits
-cmd/profiles/    profile service: ore profile change control
-cmd/registry/    registry service: assets, tags, gateway registry
-cmd/identity/    identity service: RBAC, assignments, audit trail
-cmd/gateway/     edge collector: sensor polling, canonical normalization,
-                 store-and-forward buffer (SQLite/WAL), batch delivery with
-                 exponential backoff, heartbeat pulse, backfill on recovery
-internal/
-  config/        settings + .env loader (+ EVENT_SINKS)
-  schema/        canonical telemetry contract + validation (shared by gateway)
-  store/         database: open by DSN, portable migrations, models, repository
-  hub/           in-process pub/sub for live dashboard events
-  api/           HTTP handlers, sectioned router (standard library mux), WS
-  service/       shared composition root for every deployable
-  simulator/     deterministic demo telemetry generator
-  gateway/       edge collector subsystem (buffer, sender, pulse, simulated sensor)
+                    ┌──────────────────────────────────────────┐
+                    │  capd — единственный сервер :8000        │
+                    │  api · auth · ingest · historian ·       │
+                    │  alarms · control · metallurgy ·         │
+                    │  registry · hub · store · web (SPA)      │
+                    └────────▲──────────────────┬──────────────┘
+              HTTP batch     │                  │ GET /control/output
+   ┌──────────┐  Modbus TCP   │      FC6-мост    │
+   │ plantsim │◄──────────────┴──────────────────┤
+   │ :1502/:15080                            │
+   └──────────┘        edge (шлюз сбора) ────┘
+   (демо-стенд)        store-and-forward буфер
 ```
 
-## Run (development)
+- **capd** — модульный монолит: один бинарник, одна БД, один порт. Модули —
+  пакеты `internal/*` с секциями маршрутов. SQL только в `internal/store`,
+  формулы — в `internal/metallurgy` и `internal/plantsim`.
+- **edge** — шлюз сбора: опрос Modbus (1 с), нормализация к контракту
+  `internal/schema`, буферизация при недоступности сервера (SQLite), доставка
+  батчами с подтверждением, пульс состояния. Запись актуаторов — FC6-мост
+  (только режим АВТО контуров + разовые ручные команды; при потере сервера
+  удерживает последнее значение).
+- **plantsim** — демонстрационный стенд: матмодель обогащения (дробление →
+  измельчение → флотация → сгуститель → фильтр) за настоящим Modbus TCP
+  сервером (FC3/FC4/FC6, ручной MBAP) + HTTP для сценариев. В продакшене
+  вместо него — контроллеры завода.
+
+Единственный путь телеметрии: `plantsim/ПЛК → Modbus → edge → ingest
+(идемпотентно) → capd (historian + WS + тревоги)`. Виртуальные расчётные теги
+(`calc_*`) идут через тот же контракт.
+
+## Сборка и запуск
 
 ```bash
-cd backend
-cp .env.example .env        # optional; defaults already match this file
-go run ./cmd/server
+# всё сразу (стенд + сервер + шлюз, свежая БД):
+cd backend && ./run.sh
+# открыть http://127.0.0.1:8000 — вход operator/operator или admin/admin
+
+# фронтенд отдельно в dev-режиме (прокси на :8000):
+cd frontend && npm run dev
+
+# скриптованная демонстрация (7 сценариев, ~15 мин):
+demo/run-demo.sh
 ```
 
-The API is then available at `http://127.0.0.1:8000`. The same origin serves the
-embedded dashboard (UI + API + WebSocket in one process), built from the
-frontend into `internal/web/web` (see "Frontend" below).
+`go build ./... && go vet ./... && go test ./...` — зелёные; фронтенд
+`npm run build` без ошибок TypeScript.
 
-### Endpoints (Go extensions beyond the Python MVP)
+## Переменные окружения (сервер)
 
-| Method | Path | Purpose |
-| ------ | ---- | ------- |
-| POST | `/api/v1/ingest/gateway_events` | edge gateway heartbeat (pulse/online/offline, buffer depth, latency) |
-| GET | `/api/v1/gateways` | registered gateways with last known state |
-| GET | `/api/v1/telemetry/aggregate` | downsample numerics into buckets (`resolution=30s\|1m\|5m\|1h\|1d`, `agg=avg\|min\|max\|sum\|count\|last`) |
-| GET | `/api/v1/analytics/process` | derived metallurgical KPIs: percent solids from pulp density, specific reagent consumption, dry throughput, profile-corridor statuses (formulas exposed per KPI) |
-| GET | `/api/v1/alarms/active` | current ISA-18.2-style alarm states |
-| POST | `/api/v1/alarms/{id}/ack` | acknowledge an alarm (`{"ack_by": ..., "comment": ...}`) |
-| GET | `/api/v1/profiles` | ore profiles, newest first |
-| GET | `/api/v1/profiles/active` | currently active ore profile |
-| POST | `/api/v1/profiles` | create a draft (`params` is a JSON object of thresholds/baselines) |
-| POST | `/api/v1/profiles/{id}/approve` | approve a draft (change control) |
-| POST | `/api/v1/profiles/{id}/activate` | switch the plant to an approved profile |
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `HTTP_ADDR` | `127.0.0.1:8000` | адрес capd |
+| `DB_URL` | `sqlite://./cap.db` | SQLite или `postgres://` |
+| `GATEWAY_TOKEN` | — | общий ключ шлюзов для машинных endpoint'ов ingest |
+| `PLANTSIM_URL` | — | HTTP стенда (включает `POST /api/v1/scenario`) |
+| `CONTROL_ENABLED` | `false` | запуск супервизорных ПИД-контуров |
+| `CONTROL_STALE` | `10s` | watchdog: возраст PV до заморозки контура |
 
-`/api/v1/telemetry/latest` additionally reports `stale: true` and
-`age_seconds` when the newest sample is older than `STALENESS_SECONDS`.
-The simulator (development only) reads the active ore profile: its thresholds
-drive breach detection, and it maintains/clears alarm states automatically.
+Шлюз: `SOURCE_DRIVER=modbus`, `MODBUS_ADDR`, `MODBUS_UNIT_ID`, `POLL_INTERVAL`,
+`TAGS` (карта `asset.tag:unit|reg=<fc>:<addr>:<тип>:<масштаб>`),
+`GATEWAY_TOKEN` (тот же ключ), `CONTROL_ENABLED`, `CONTROL_POLL`.
+Полный пример — `.env.example`.
 
-## Edge gateway (store-and-forward)
+## Модель данных и расчёты
 
-`go run ./cmd/gateway` runs the edge collector:
+- 43 тега: 28 датчиков + 7 актуаторов + 8 расчётных (`calc_epsilon`,
+  `calc_gamma`, `calc_upgrade`, `calc_pull`, `calc_balance_err`,
+  `calc_q_collector`, `calc_bond_kwt`, `calc_cl_pct`).
+- Металлургия: двухпродуктовая формула (ε, γ, K), невязка баланса, кросс-проверка
+  извлечений, энергия Бонда, циркулирующая нагрузка, удельные расходы. Каждый
+  KPI несёт строку формулы и теги-источники (аудируемость расчёта).
+- Тревоги: ISA-18.2 — рационализированные уставки, задержки 3/10 с, гистерезис
+  1% шкалы, журнал `alarm_events`, comm_loss по активам, квитирование из сессии.
+- Контур управления: 3 петли (уровень флотомашины, удельный собиратель,
+  плотность сгущения), режимы АВТО/РУЧН с безбамперным переходом от позиции
+  поля, watchdog PV, подтверждение записей, полный аудит.
 
-1. **Poll** local instruments (simulated sensor by default; `SOURCE_DRIVER`
-   selects `opcua`, `modbus` or `sparkplug` — all read-only, per-tag address
-   specs in `TAGS`) and normalize into the canonical contract. The sparkplug
-   driver acts as a Sparkplug B Primary Host Application: it subscribes to
-   `spBv1.0/#` and never publishes.
-2. **Buffer** every message in a local SQLite/WAL file (`GATEWAY_BUFFER_DB`)
-   — survives restarts, survives server outages.
-3. **Deliver** as `:batch` batches; the queue is drained only on server
-   confirmation: `accepted`/`duplicate` are removed, `rejected` goes to the
-   resync register (`gateway-rejected.log`).
-4. **Backoff** exponentially on transport failures (1s→10s), and the heartbeat
-   wakes the sender the moment the server is reachable again — the queued data
-   backfills immediately.
-5. **Pulse** every `PULSE_INTERVAL` to `/api/v1/ingest/gateway_events` so the
-   server tracks online/offline state and buffer depth per gateway.
+## Безопасность (MVP)
 
-Demo of the failure mode (see `demo.sh`): server up → gateway streams →
-server killed → gateway keeps polling and buffering → server restarted →
-gateway backfills the whole outage window, nothing is lost.
+Локальные учётки (PBKDF2-SHA256), серверные сессии в HttpOnly-cookie, RBAC по
+ролям, аудит мутаций. Шлюзы аутентифицируются общим `GATEWAY_TOKEN`. Seed-пароли
+демонстрационные — сменить перед реальной эксплуатацией. SameSite=Lax +
+same-origin; OIDC/LDAP — вне рамок MVP.
 
-## Split mode (microservices)
+## Структура
 
-The same codebase deploys as independent processes. `api.Routes` takes route
-sections (`ingest`, `historian`, `alarms`, `profiles`, `registry`, `identity`,
-`live`); each `cmd/<service>` binary mounts exactly one, `cmd/server` mounts
-all of them. `cmd/gateway-api` fronts the services on a single address; the
-ingest service forwards accepted readings to the live service over
-`EVENT_SINKS` so the dashboard keeps its real-time feed.
-
-```bash
-cd backend
-scripts/services.sh start   # live(:8001) → ingest/historian/alarms/profiles/
-                            # registry/identity (:8002-8007) → gateway-api(:8000)
-scripts/services.sh status  # running services
-scripts/services.sh stop    # stop everything
 ```
-
-Services share the database (`CAP_DB_URL`, default `sqlite://.run/cap.db` —
-SQLite/WAL with busy_timeout is multi-process safe); the live service starts
-first and owns migrations/seeds. `gateway-api` upstreams are overridable per
-service (`INGEST_UPSTREAM`, `HISTORIAN_UPSTREAM`, ...).
-
-## Test
-
-```bash
-go test ./...
+backend/
+  cmd/capd        сервер-монолит       internal/store       SQL (SQLite/PG)
+  cmd/edge        шлюз сбора           internal/api         HTTP + WS
+  cmd/plantsim    стенд                internal/alarms      движок ISA-18.2
+  internal/gateway  драйверы Modbus/OPC UA/Sparkplug, буфер, FC6-мост
+  internal/plantsim модель процесса + Modbus TCP сервер + сценарии
+  internal/metallurgy металлургический баланс
+  internal/controlsvc супервизорные петли   internal/control  ядро ПИД
+  internal/auth     PBKDF2 + сессии       internal/hub        шина событий
+frontend/         React 18 + TS + Vite + Tailwind (встраивается в capd)
+demo/             run-demo.sh, scenario.sh
 ```
-
-Contract tests in `internal/api` re-express the canonical contract tests
-(idempotency, batch per-item results, unknown/incompatible tags, schema rejects).
-
-## Storage drivers
-
-`DB_URL` selects the driver:
-
-- `sqlite://./cap.db` — pure-Go SQLite (default, demo, tests). No CGO, no services.
-- `postgres://user:pass@host:5432/dbname` — PostgreSQL (production). Same code path.
-
-Migrations are portable DDL tracked in `schema_migrations`.
-
-## Frontend (embedded SPA)
-
-The dashboard is a React/Vite app in `../frontend`. Rebuild and embed after any
-UI change:
-
-```bash
-cd ../frontend && npm run build
-cp -r dist/* ../backend/internal/web/web/
-cd ../backend && go build ./...
-```
-
-Restart the server and open `http://127.0.0.1:8000`: the single process serves
-the HTML, hashed assets, the API and the WebSocket feed.
-
-## Contract freeze
-
-The API contract (v1 under `/api/v1`) is documented in `../TZ_DEVELOPMENT.md` and
-exercised by the contract tests. Any API change requires updating that document
-and the contract tests first.

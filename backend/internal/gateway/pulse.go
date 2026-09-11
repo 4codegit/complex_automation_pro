@@ -18,6 +18,7 @@ import (
 type Pulse struct {
 	client    *http.Client
 	server    string
+	token     string // device credential (X-Gateway-Token)
 	interval  time.Duration
 	gatewayID string
 	version   string
@@ -31,10 +32,11 @@ type Pulse struct {
 
 // NewPulse builds the heartbeat sender. onReconnect lets the pulse wake the
 // sender immediately when connectivity returns (fast backfill).
-func NewPulse(server, gatewayID, version string, interval time.Duration, bufferLen func() int64, latency func() time.Duration, onReconnect func()) *Pulse {
+func NewPulse(server, token, gatewayID, version string, interval time.Duration, bufferLen func() int64, latency func() time.Duration, onReconnect func()) *Pulse {
 	return &Pulse{
 		client:    &http.Client{Timeout: 5 * time.Second},
 		server:    server,
+		token:     token,
 		interval:  interval,
 		gatewayID: gatewayID,
 		version:   version,
@@ -92,7 +94,15 @@ func (p *Pulse) beat(ctx context.Context) {
 	}
 	raw, _ := json.Marshal(ev)
 
-	resp, err := p.client.Post(p.server+"/api/v1/ingest/gateway_events", "application/json", bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.server+"/api/v1/ingest/gateway_events", bytes.NewReader(raw))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if p.token != "" {
+		req.Header.Set("X-Gateway-Token", p.token)
+	}
+	resp, err := p.client.Do(req)
 	if err != nil {
 		if p.Online() {
 			log.Printf("[gateway] pulse failed: server unreachable")

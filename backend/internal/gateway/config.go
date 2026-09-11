@@ -50,12 +50,13 @@ type Config struct {
 	ModbusAddr    string
 	ModbusUnitID  uint8
 	ModbusTimeout time.Duration
-	// Supervisory control write bridge (ADR-003). CONTROL_ENABLED=false keeps
-	// the gateway strictly read-only; enabling it allows exactly one holding
-	// register write (FC6) driven by the server's computed loop output.
+	// GatewayToken is the device credential for the machine endpoints
+	// (ingest, heartbeat). It must match the server's GATEWAY_TOKEN.
+	GatewayToken string
+	// Supervisory control write bridge (TZ §9). CONTROL_ENABLED=false keeps
+	// the gateway strictly read-only; enabling it allows FC6 holding-register
+	// writes for the loop MVs and one-shot manual actuator writes.
 	ControlEnabled bool
-	ControlOutTag  string
-	ControlWrite   string
 	ControlPoll    time.Duration
 	// MQTT/Sparkplug B driver settings (ignored by other drivers).
 	MQTTBroker   string
@@ -95,9 +96,8 @@ func LoadConfig(envPath string) (*Config, error) {
 		ModbusAddr:       get("MODBUS_ADDR", ""),
 		ModbusUnitID:     getUint8("MODBUS_UNIT_ID", 1),
 		ModbusTimeout:    getDuration("MODBUS_TIMEOUT", 1*time.Second),
+		GatewayToken:     get("GATEWAY_TOKEN", ""),
 		ControlEnabled:   getBool2("CONTROL_ENABLED", false),
-		ControlOutTag:    get("CONTROL_OUT_TAG", ""),
-		ControlWrite:     get("CONTROL_WRITE", ""),
 		ControlPoll:      getDuration("CONTROL_POLL", 1*time.Second),
 		MQTTBroker:       get("MQTT_BROKER", ""),
 		MQTTClientID:     get("MQTT_CLIENT_ID", ""),
@@ -122,17 +122,18 @@ func LoadConfig(envPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// defaultTags mirrors the seeded demo registry (one edge gateway per area).
+// defaultTags mirrors the seeded flotation registry (fallback when TAGS is
+// unset; real deployments configure the full §7 register map).
 func defaultTags() string {
 	return strings.Join([]string{
-		"plant-a.crushing.particle_size:mm",
-		"plant-a.crushing.pulp_density:g/cm3",
-		"plant-a.flotation.ph_level:pH",
-		"plant-a.flotation.reagent_dosage:mL/min",
-		"plant-a.dewatering.cake_moisture:%",
-		"plant-a.dewatering.dryer_temperature:C",
-		"plant-a.concentrate.tonnage_weight:t/h",
-		"plant-a.concentrate.final_moisture:%",
+		"plant.crushing.fi101:t/h",
+		"plant.grinding.ei201:kW",
+		"plant.grinding.xi201:um",
+		"plant.flotation.li301:mm",
+		"plant.flotation.ai301:pH",
+		"plant.flotation.aft301:%Cu",
+		"plant.thickening.li401:m",
+		"plant.filtration.mi501:%",
 	}, ",")
 }
 

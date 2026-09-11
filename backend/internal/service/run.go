@@ -1,9 +1,7 @@
-// Package service is the shared composition root for every CAP deployable:
-// the all-in-one development server (cmd/server) and the split microservices
-// (cmd/live, cmd/ingest, cmd/historian, cmd/alarms, cmd/profiles, cmd/registry,
-// cmd/identity). It wires config, storage, migrations, the live hub and the
-// simulator identically in every process, so services differ only in the route
-// sections they own.
+// Package service is the composition root of capd, the single server binary:
+// config, storage, migrations, seeds, the live hub, the alarm engine, the
+// supervisory control manager and the metallurgy calc service, all in one
+// process behind one HTTP port (TZ §4).
 package service
 
 import (
@@ -18,32 +16,20 @@ import (
 	"syscall"
 	"time"
 
+	"cap/internal/alarms"
 	"cap/internal/api"
+	"cap/internal/auth"
 	"cap/internal/config"
+	"cap/internal/controlsvc"
 	"cap/internal/hub"
-	"cap/internal/simulator"
+	"cap/internal/metallurgy"
 	"cap/internal/store"
 )
 
-// Options selects what a process runs.
-type Options struct {
-	// Name prefixes log lines and identifies the process (ingest, historian...).
-	Name string
-
-	// Sections are the route domains this process owns (see api.Routes).
-	// Empty means all sections — the all-in-one development bundle.
-	Sections []string
-
-	// Seed runs the idempotent registry/roles/profile seeds. Only the first
-	// process to touch a fresh database needs it; scripts/services.sh
-	// starts the live service first for exactly that reason.
-	Seed bool
-}
-
 // Run blocks until SIGINT/SIGTERM, then returns.
-func Run(o Options) error {
+func Run() error {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
-	log.SetPrefix("[cap:" + o.Name + "] ")
+	log.SetPrefix("[cap:capd] ")
 
 	cfg, err := config.Load(".env")
 	if err != nil {
@@ -58,44 +44,51 @@ func Run(o Options) error {
 	}
 	defer db.Close()
 
-	if err := migrateWithRetry(ctx, db); err != nil {
+	if err := store.Migrate(ctx, db); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	if o.Seed {
-		if err := store.SeedRegistry(ctx, db); err != nil {
-			return fmt.Errorf("seed registry: %w", err)
-		}
-		if err := store.SeedRoles(ctx, db); err != nil {
-			return fmt.Errorf("seed roles: %w", err)
-		}
-		if err := store.EnsureDefaultProfile(ctx, db); err != nil {
-			return fmt.Errorf("seed profiles: %w", err)
-		}
+	if err := seedAll(ctx, db); err != nil {
+		return fmt.Errorf("seed: %w", err)
 	}
 
 	h := hub.New()
-	sim := simulator.New(db, h, cfg.SimInterval, cfg.EmergencySec)
-	srv := api.New(db, h, sim, cfg)
+	eng := alarms.New(db, h)
+	srv := api.New(db, h, cfg, eng, nil)
+
+	// The metallurgy calc service writes virtual tags through the canonical
+	// ingest path (TZ §10): validation, historian and WS fan-out all apply.
+	calc := metallurgy.New(db, srv.IngestCanonical, 5*time.Second)
+	loops := controlsvc.New(db, h, eng, cfg.ControlStale)
+	srv.SetLoops(loops)
 
 	appCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// The simulator runs in the all-in-one bundle and in the live service —
-	// the process that owns the WebSocket hub it broadcasts into.
-	ownsSim := len(o.Sections) == 0 || contains(o.Sections, "live")
-	if cfg.SimulatorOn && ownsSim {
-		sim.Start(appCtx)
-		log.Printf("simulator enabled (interval=%s)", cfg.SimInterval)
+	// Communication-loss watchdog (TZ §11).
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-appCtx.Done():
+				return
+			case <-ticker.C:
+				eng.Sweep(appCtx)
+			}
+		}
+	}()
+
+	if cfg.ControlEnabled {
+		go loops.Run(appCtx)
+		log.Printf("supervisory control enabled (watchdog %s)", cfg.ControlStale)
+	} else {
+		log.Printf("supervisory control disabled: loops seeded in manual, CONTROL_ENABLED=1 to start")
 	}
-	// Supervisory control (ADR-003): opt-in. The PID loop runs where the
-	// simulator/live hub runs; the gateway translates output into writes.
-	if cfg.ControlEnabled && ownsSim {
-		srv.StartControlLoop(appCtx)
-	}
+	go calc.Run(appCtx)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           srv.Routes(o.Sections...),
+		Handler:           srv.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -103,7 +96,6 @@ func Run(o Options) error {
 		<-appCtx.Done()
 		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		sim.Stop()
 		_ = httpSrv.Shutdown(shCtx)
 	}()
 
@@ -115,24 +107,55 @@ func Run(o Options) error {
 	return nil
 }
 
-// migrateWithRetry tolerates a sibling service completing the same migration
-// first: SQLite serialises writers, so concurrent starts can briefly collide.
-func migrateWithRetry(ctx context.Context, db *sql.DB) error {
-	var err error
-	for attempt := 1; attempt <= 3; attempt++ {
-		if err = store.Migrate(ctx, db); err == nil {
-			return nil
-		}
-		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+// seedAll runs the idempotent first-start seeds: plant catalogue, rationalised
+// alarm limits, control loops, roles and the initial local accounts.
+func seedAll(ctx context.Context, db *sql.DB) error {
+	if err := store.SeedRegistry(ctx, db); err != nil {
+		return fmt.Errorf("registry: %w", err)
 	}
-	return err
+	if err := store.SeedAlarmLimits(ctx, db); err != nil {
+		return fmt.Errorf("alarm limits: %w", err)
+	}
+	if err := store.SeedControlLoops(ctx, db); err != nil {
+		return fmt.Errorf("control loops: %w", err)
+	}
+	if err := store.SeedRoles(ctx, db); err != nil {
+		return fmt.Errorf("roles: %w", err)
+	}
+	return seedUsers(ctx, db)
 }
 
-func contains(list []string, v string) bool {
-	for _, item := range list {
-		if item == v {
-			return true
+// seedUsers creates the initial accounts on a fresh install (TZ §12).
+// Passwords are development defaults and must be rotated in production.
+func seedUsers(ctx context.Context, db *sql.DB) error {
+	n, err := store.CountUsers(ctx, db)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	type seed struct {
+		username, label, password string
+	}
+	for _, s := range []seed{
+		{"admin", "Администратор", "admin"},
+		{"operator", "Оператор", "operator"},
+	} {
+		hash, err := auth.HashPassword(s.password)
+		if err != nil {
+			return err
+		}
+		if err := store.CreateUser(ctx, db, &store.User{
+			Username: s.username, Label: s.label, PasswordHash: hash, Active: true,
+		}); err != nil {
+			return err
 		}
 	}
-	return false
+	// The demo operator gets the operator system role out of the box.
+	if err := store.AssignRole(ctx, db, "operator", "operator", "seed"); err != nil {
+		return err
+	}
+	log.Printf("seeded default accounts admin/admin and operator/operator — rotate before production use")
+	return nil
 }

@@ -1,197 +1,191 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { TelemetryReading, useWebSocket } from '../hooks/useWebSocket';
-import { useRegistry } from '../hooks/useRegistry';
-import { useAlarms } from '../hooks/useAlarms';
-import { METRIC_LABELS } from './StatusCard';
+import React, { useMemo, useState } from 'react';
+import { useLiveMap } from '../ws/WsProvider';
+import { useRegistry } from '../registry/RegistryProvider';
+import Faceplate from './Faceplate';
 
-const API_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000/api/v1`;
-
-// Mimic layout: one flowsheet row, pipeline connectors, live values on the
-// nodes. This is the SCADA-style synoptic view of the demo flowsheet.
-const NODES: {
-  stage: string;
-  title: string;
-  metrics: string[];
+interface NodeSpec {
+  asset: string;
   x: number;
-  accent: string;
-}[] = [
-  { stage: 'crushing_grinding', title: 'Дробление · измельчение', metrics: ['particle_size', 'pulp_density'], x: 15, accent: '#818cf8' },
-  { stage: 'flotation', title: 'Флотация', metrics: ['ph_level', 'reagent_dosage'], x: 335, accent: '#38bdf8' },
-  { stage: 'drying_dewatering', title: 'Сгущение · сушка', metrics: ['cake_moisture', 'dryer_temperature'], x: 655, accent: '#fbbf24' },
-  { stage: 'final_concentrate', title: 'Концентрат · отгрузка', metrics: ['tonnage_weight', 'final_moisture'], x: 975, accent: '#34d399' },
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  metrics: { tag: string; unit?: boolean }[];
+}
+
+// Vertical flowsheet (TZ §5): bin → crusher → mill+cyclone → flotation →
+// thickener → filter → shipping, with the tails branch. Values stream live;
+// clicking a node opens its faceplate.
+const NODES: NodeSpec[] = [
+  {
+    asset: 'plant.crushing', x: 60, y: 30, w: 240, h: 88, label: 'Дробление',
+    metrics: [{ tag: 'plant.crushing.fi101' }, { tag: 'plant.crushing.si101' }],
+  },
+  {
+    asset: 'plant.grinding', x: 60, y: 168, w: 240, h: 112, label: 'Измельчение',
+    metrics: [
+      { tag: 'plant.grinding.ei201' },
+      { tag: 'plant.grinding.xi201' },
+      { tag: 'plant.grinding.pi201' },
+    ],
+  },
+  {
+    asset: 'plant.flotation', x: 60, y: 330, w: 240, h: 128, label: 'Флотация',
+    metrics: [
+      { tag: 'plant.flotation.li301' },
+      { tag: 'plant.flotation.ai301' },
+      { tag: 'plant.flotation.aft301' },
+      { tag: 'plant.flotation.qi301' },
+    ],
+  },
+  {
+    asset: 'plant.thickening', x: 60, y: 508, w: 240, h: 100, label: 'Сгущение',
+    metrics: [{ tag: 'plant.thickening.li401' }, { tag: 'plant.thickening.di401' }],
+  },
+  {
+    asset: 'plant.filtration', x: 60, y: 658, w: 240, h: 100, label: 'Фильтрация',
+    metrics: [{ tag: 'plant.filtration.mi501' }, { tag: 'plant.filtration.wi501' }],
+  },
 ];
 
-const VIEW_W = 1240, VIEW_H = 360, NODE_W = 250, NODE_H = 150;
-
-type ControlInfo = {
-  enabled: boolean;
-  status?: string;
-  setpoint?: { value: number };
-  pv?: { value: number };
-  output?: number;
-};
-
 const SynopticPanel: React.FC = () => {
-  const { readings } = useWebSocket();
-  const { stageOrder, loading } = useRegistry();
-  const { alarms } = useAlarms();
-  const [ctrl, setCtrl] = useState<ControlInfo | null>(null);
+  const live = useLiveMap();
+  const { tagLabel, assets } = useRegistry();
+  const [openAsset, setOpenAsset] = useState<string | null>(null);
 
-  const loadCtrl = useCallback(async () => {
-    try {
-      const r = await fetch(`${API_URL}/control/status`, { headers: { Accept: 'application/json' } });
-      if (r.ok) setCtrl((await r.json()) as ControlInfo);
-    } catch {
-      // mimic stays functional without the control service
-    }
-  }, []);
+  const assetAlarm = useMemo(() => {
+    // A node shows red while any of its tags carries an alarm-quality feed
+    // item; offline detection from live data quality.
+    return (assetId: string) => {
+      const hasData = NODES.find((n) => n.asset === assetId)?.metrics.some((m) => live.has(m.tag));
+      return hasData ? 'ok' : 'offline';
+    };
+  }, [live]);
 
-  useEffect(() => {
-    void loadCtrl();
-    const t = setInterval(() => void loadCtrl(), 3000);
-    return () => clearInterval(t);
-  }, [loadCtrl]);
-
-  const byMetric = useMemo(() => {
-    const m = new Map<string, TelemetryReading>();
-    readings.forEach((r) => m.set(r.metric, r));
-    return m;
-  }, [readings]);
-
-  const unack = alarms.filter((a) => a.state === 'active_unacknowledged').length;
-
-  const nodeStatus = (stage: string, metrics: string[]): 'ok' | 'alarm' | 'offline' => {
-    const rs = metrics.map((m) => byMetric.get(m)).filter(Boolean) as TelemetryReading[];
-    if (rs.length === 0) return 'offline';
-    if (rs.some((r) => r.alert)) return 'alarm';
-    if (rs.every((r) => r.quality === 'offline' || r.quality === 'stale')) return 'offline';
-    return 'ok';
+  const valueOf = (tagId: string): { text: string; quality: string } => {
+    const point = live.get(tagId);
+    if (!point) return { text: '—', quality: 'offline' };
+    const digits = Math.abs(point.value) < 1 ? 3 : point.value < 20 ? 2 : 1;
+    return { text: point.value.toFixed(digits), quality: point.quality };
   };
 
-  const stageTitle = (stage: string, fallback: string) =>
-    stageOrder.find((s) => s.area === stage)?.label ?? fallback;
+  const assetName = (id: string) => assets.find((a) => a.id === id)?.name ?? id;
 
-  return (
-    <div className="space-y-3">
-      {/* Alarm banner — classic SCADA annunciation strip */}
-      <div
-        className={`flex items-center gap-3 rounded-lg border px-3.5 py-2 text-[12px] ${
-          unack > 0
-            ? 'border-alarm/40 bg-alarm/10 font-semibold text-alarm'
-            : 'border-line bg-panel text-dim'
-        }`}
-      >
-        <span className={`h-2 w-2 rounded-full ${unack > 0 ? 'bg-red-500 animate-blink-soft' : 'bg-emerald-400'}`} />
-        {unack > 0 ? (
-          <>
-            <span>НЕКВИТИРОВАННЫХ АВАРИЙ: {unack}</span>
-            <a href="#alarms" className="ml-auto underline decoration-dotted">перейти в Аварии →</a>
-          </>
-        ) : (
-          <span>Активных аварий нет — технологический процесс в норме</span>
+  const renderNode = (node: NodeSpec) => {
+    const status = assetAlarm(node.asset);
+    const stroke = status === 'offline' ? 'stroke-warn' : 'stroke-line';
+    return (
+      <g key={node.asset} onClick={() => setOpenAsset(node.asset)} className="cursor-pointer">
+        <rect
+          x={node.x} y={node.y} width={node.w} height={node.h} rx={8}
+          className={`fill-panel ${stroke}`}
+          strokeWidth={1.5}
+        />
+        <title>{assetName(node.asset)}</title>
+        <text x={node.x + 12} y={node.y + 20} className="fill-mute" fontSize={11}>
+          {node.label}
+        </text>
+        {status === 'offline' && (
+          <text x={node.x + node.w - 12} y={node.y + 20} textAnchor="end" className="fill-warn" fontSize={10}>
+            нет связи
+          </text>
         )}
-      </div>
-
-      {/* Mimic canvas */}
-      <div className="rounded-lg border border-line bg-panel p-3.5">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-mute">
-            Мнемосхема — технологическая цепочка
-          </h3>
-          <span className="text-[10px] text-dim">значения обновляются в реальном времени</span>
-        </div>
-
-        <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full" role="img" aria-label="Мнемосхема фабрики">
-          {/* pipeline */}
-          <defs>
-            <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
-              <path d="M0,0 L7,3.2 L0,6.4" fill="none" stroke="rgb(var(--c-dim))" strokeWidth="1.4" />
-            </marker>
-          </defs>
-          <path d="M 15 60 H 1225" stroke="rgb(var(--c-line))" strokeWidth="10" fill="none" strokeLinecap="round" />
-          <path d="M 15 60 H 1210" stroke="rgb(var(--c-dim))" strokeWidth="1.4" fill="none" markerEnd="url(#arrow)" opacity="0.7" />
-          {[275, 595, 915].map((x) => (
-            <circle key={x} cx={x} cy={60} r="4" fill="rgb(var(--c-dim))" />
-          ))}
-          <text x={15} y={28} fontSize="12" fill="rgb(var(--c-dim))">руда →</text>
-          <text x={1140} y={28} fontSize="12" fill="rgb(var(--c-dim))">концентрат → отгрузка</text>
-
-          {/* flotation control bubble: doser -> node */}
-          {ctrl?.enabled && ctrl.status === 'auto' && (
-            <>
-              <path d="M 460 60 V 118" stroke="rgb(var(--c-accent))" strokeWidth="1.6" fill="none" markerEnd="url(#arrow)" />
-              <text x={468} y={112} fontSize="11" fill="rgb(var(--c-accent))" fontFamily="monospace">
-                дозатор {Math.round(ctrl.output ?? 0)}%
+        {node.metrics.map((m, i) => {
+          const v = valueOf(m.tag);
+          const label = tagLabel(m.tag);
+          const clipped = label.length > 22 ? label.slice(0, 21) + '…' : label;
+          return (
+            <g key={m.tag}>
+              <text x={node.x + 12} y={node.y + 42 + i * 20} className="fill-dim" fontSize={9.5}>
+                {clipped}
               </text>
-            </>
-          )}
-
-          {NODES.map((n) => {
-            const status = nodeStatus(n.stage, n.metrics);
-            const border =
-              status === 'alarm' ? '#ef4444' : status === 'offline' ? 'rgb(var(--c-dim))' : n.accent;
-            const strokeW = status === 'alarm' ? 2.5 : 1.5;
-            return (
-              <g key={n.stage}>
-                <rect
-                  x={n.x} y={95} width={NODE_W} height={NODE_H} rx={10}
-                  fill="rgb(var(--c-panel))" stroke={border} strokeWidth={strokeW}
-                />
-                <rect x={n.x} y={95} width={6} height={NODE_H} rx={3} fill={n.accent} />
-                <text x={n.x + 18} y={122} fontSize="13" fontWeight="700" fill="rgb(var(--c-ink))" fontFamily="Arial">
-                  {stageTitle(n.stage, n.title).toUpperCase()}
-                </text>
-                {n.metrics.map((metric, i) => {
-                  const r = byMetric.get(metric);
-                  const dead = r && (r.quality === 'offline' || r.quality === 'stale');
-                  return (
-                    <g key={metric} transform={`translate(${n.x + 18} ${155 + i * 40})`}>
-                      <text fontSize="11.5" fill="rgb(var(--c-mute))" fontFamily="Arial">
-                        {METRIC_LABELS[metric] ?? metric}
-                      </text>
-                      <text x={NODE_W - 36} y={0} textAnchor="end" fontSize="16" fontWeight="600" fontFamily="monospace"
-                        fill={r?.alert ? '#ef4444' : dead ? 'rgb(var(--c-dim))' : 'rgb(var(--c-ink))'}>
-                        {dead ? '—' : r ? r.value.toFixed(2) : '…'}
-                      </text>
-                      <text x={NODE_W - 36} y={14} textAnchor="end" fontSize="9.5" fill="rgb(var(--c-dim))" fontFamily="Arial">
-                        {r ? r.unit : ''}
-                      </text>
-                    </g>
-                  );
-                })}
-                {status === 'alarm' && (
-                  <circle cx={n.x + NODE_W - 18} cy={115} r="5" fill="#ef4444" className="animate-blink-soft" />
-                )}
-                {status === 'offline' && (
-                  <text x={n.x + 18} y={NODE_H + 112} fontSize="10" fill="rgb(var(--c-dim))" fontFamily="Arial">нет связи</text>
-                )}
-              </g>
-            );
-          })}
-
-          {/* control loop bubble on flotation */}
-          {ctrl?.enabled && ctrl.setpoint && (
-            <g transform={`translate(335 ${95 + NODE_H + 14})`}>
-              <rect width={NODE_W} height={44} rx={8} fill="rgb(var(--c-accent))" opacity={ctrl.status === 'auto' ? 0.12 : 0.05} />
-              <text x={12} y={19} fontSize="10.5" fill="rgb(var(--c-accent))" fontFamily="Arial">
-                КОНТУР pH {ctrl.status === 'auto' ? '· АВТО' : ctrl.status === 'paused_watchdog' ? '· ПАУЗА' : '· ВЫКЛ'}
-              </text>
-              <text x={12} y={35} fontSize="11.5" fontFamily="monospace" fill="rgb(var(--c-ink))">
-                SP {ctrl.setpoint.value.toFixed(1)} · PV {(ctrl.pv?.value ?? 0).toFixed(2)} · вых {Math.round(ctrl.output ?? 0)}%
+              <text
+                x={node.x + node.w - 12}
+                y={node.y + 42 + i * 20}
+                textAnchor="end"
+                fontSize={12}
+                className={`num font-semibold ${
+                  v.quality === 'good' ? 'fill-ink' : 'fill-warn'
+                }`}
+              >
+                {v.text}
+                {live.get(m.tag)?.unit ? <tspan className="fill-dim" fontSize={9}> {live.get(m.tag)!.unit}</tspan> : null}
               </text>
             </g>
-          )}
+          );
+        })}
+      </g>
+    );
+  };
+
+  const pipe = (x: number, y1: number, y2: number) => (
+    <g>
+      <line x1={x} y1={y1} x2={x} y2={y2} strokeWidth={5} className="stroke-line" strokeLinecap="round" />
+      <polygon points={`${x - 5},${y2 - 9} ${x + 5},${y2 - 9} ${x},${y2}`} className="fill-dim" />
+    </g>
+  );
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-[13px] font-semibold uppercase tracking-[0.07em] text-mute">
+        Технологическая схема участка — {assets.length ? 'живые данные' : 'реестр загружается…'}
+      </h2>
+      <div className="rounded-lg border border-line bg-panel p-2">
+        <svg viewBox="0 0 760 800" className="mx-auto block h-auto w-full max-w-[860px]">
+          {/* Main process column */}
+          {pipe(180, 118, 168)}
+          {pipe(180, 280, 330)}
+          {pipe(180, 458, 508)}
+          {pipe(180, 608, 658)}
+
+          {/* Concentrate branch: flotation → shipping (right) */}
+          <g>
+            <path d="M 300 390 H 560 V 700 H 310" fill="none" strokeWidth={3} className="stroke-ok/60" strokeDasharray="1 0" />
+            <polygon points="300,390 310,385 310,395" className="fill-ok" />
+            <text x={430} y={380} textAnchor="middle" className="fill-ok" fontSize={10.5}>
+              концентрат
+            </text>
+            <text x={560} y={730} textAnchor="middle" fontSize={12.5} className="num font-semibold fill-ink">
+              {live.has('plant.flotation.wi301') ? live.get('plant.flotation.wi301')!.value.toFixed(2) : '—'} т/ч
+            </text>
+            <text x={640} y={730} textAnchor="middle" className="fill-dim" fontSize={10}>
+              отгрузка
+            </text>
+          </g>
+
+          {/* Tails branch: flotation → tailings (left) */}
+          <g>
+            <path d="M 60 420 H 26 V 730" fill="none" strokeWidth={3} className="stroke-warn/60" />
+            <text x={30} y={380} className="fill-warn" fontSize={10.5}>
+              хвосты
+            </text>
+            <text x={26} y={752} textAnchor="middle" fontSize={11.5} className="num fill-dim">
+              {live.has('plant.flotation.wi302') ? live.get('plant.flotation.wi302')!.value.toFixed(1) : '—'} т/ч
+            </text>
+          </g>
+
+          {/* Cyclone loop: grinding → cyclone → back to mill */}
+          <g>
+            <circle cx={430} cy={224} r={30} className="fill-panel2 stroke-line" strokeWidth={1.5} />
+            <text x={430} y={228} textAnchor="middle" className="fill-mute" fontSize={10}>
+              гидроциклон
+            </text>
+            <path d="M 300 200 H 398" fill="none" strokeWidth={3} className="stroke-line" />
+            <path d="M 430 194 V 150 H 300" fill="none" strokeWidth={3} className="stroke-warn/50" strokeDasharray="6 4" />
+            <text x={360} y={142} textAnchor="middle" className="fill-warn" fontSize={9.5}>
+              пески (циркуляция)
+            </text>
+          </g>
+
+          {NODES.map(renderNode)}
         </svg>
-
-        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-dim">
-          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> норма</span>
-          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-blink-soft" /> тревога / нет связи</span>
-          <span>клик по метрике на «Обзоре» — детали; уставка и ручной режим — в «Управлении»</span>
-        </div>
       </div>
+      <p className="text-[11px] text-dim">
+        Клик по узлу — паспорт объекта (faceplate) с параметрами и контурами управления.
+      </p>
 
-      {loading && <p className="text-[11px] text-dim">реестр загружается…</p>}
-    </div>
+      {openAsset && <Faceplate assetId={openAsset} onClose={() => setOpenAsset(null)} />}
+    </section>
   );
 };
 

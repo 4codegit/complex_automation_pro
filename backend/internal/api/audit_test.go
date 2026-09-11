@@ -12,7 +12,6 @@ import (
 
 	"cap/internal/config"
 	"cap/internal/hub"
-	"cap/internal/simulator"
 	"cap/internal/store"
 )
 
@@ -33,9 +32,15 @@ func freshDB(t *testing.T) *sql.DB {
 
 func newTestServer(db *sql.DB) *Server {
 	cfg := &config.Settings{DefaultLimit: 50, MaxLimit: 1000}
-	s := New(db, hub.New(), &simulator.Manager{}, cfg)
+	s := New(db, hub.New(), cfg, nil, nil)
 	s.now = func() time.Time { return time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC) }
 	return s
+}
+
+// requestAs injects an authenticated subject into the request context — the
+// shape the authenticate middleware produces (used by handler-level tests).
+func requestAs(subject string, r *http.Request) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), ctxKeyUser{}, subject))
 }
 
 // TestAuditAndAlarmLimits exercises the full rationalisation + audit pipeline:
@@ -46,14 +51,14 @@ func TestAuditAndAlarmLimits(t *testing.T) {
 	s := newTestServer(db)
 
 	// Seed an asset + tag so the rationalisation target exists.
-	a := &store.Asset{ID: "plant-a.crush", Name: "Crusher", Area: "crushing"}
+	a := &store.Asset{ID: "plant.crush", Name: "Crusher", Area: "Подготовка"}
 	if err := store.CreateAsset(context.Background(), db, a); err != nil {
 		t.Fatalf("seed asset: %v", err)
 	}
 	tag := &store.Tag{
-		ID: "plant-a.crush.tpv", AssetID: "plant-a.crush",
+		ID: "plant.crush.tpv", AssetID: "plant.crush",
 		Name: "Throughput", Unit: "t/h", DataType: "number",
-		Active: true,
+		Active: true, Direction: store.DirectionInput,
 	}
 	if err := store.CreateTag(context.Background(), db, tag); err != nil {
 		t.Fatalf("seed tag: %v", err)
@@ -63,13 +68,12 @@ func TestAuditAndAlarmLimits(t *testing.T) {
 	lo, hi, hh := 10.0, 90.0, 100.0
 	body, _ := json.Marshal(rationaliseAlarmLimitRequest{
 		Lo: &lo, Hi: &hi, HiHi: &hh,
-		Severity: "high", Notes: "iso-rationalised",
+		Severity: "high", Notes: "rationalised",
 	})
 	req := httptest.NewRequest(http.MethodPut,
-		"/api/v1/alarms/limits/plant-a.crush.tpv", bytes.NewReader(body))
-	req.SetPathValue("tag_id", "plant-a.crush.tpv")
-	req.Header.Set("X-User", "metallurgist-anna")
-	req.Header.Set("X-Role", "metallurgist")
+		"/api/v1/alarms/limits/plant.crush.tpv", bytes.NewReader(body))
+	req.SetPathValue("tag_id", "plant.crush.tpv")
+	req = requestAs("metallurgist-anna", req)
 	rec := httptest.NewRecorder()
 	s.RationaliseAlarmLimit(rec, req)
 	if rec.Code != http.StatusOK {
@@ -85,13 +89,11 @@ func TestAuditAndAlarmLimits(t *testing.T) {
 	if got.RationalisedBy != "metallurgist-anna" {
 		t.Errorf("rationalised_by = %q, want metallurgist-anna", got.RationalisedBy)
 	}
-	if got.Lo == nil || *got.Lo != 90.0 || *got.Hi != 90.0 && false {
-		// sanity only: values echo back as marshalled JSON numbers
-	}
 
 	// 2. Audit trail should record the rationalisation.
 	req2 := httptest.NewRequest(http.MethodGet,
 		"/api/v1/access/audit?resource_type=alarm_limit&limit=10", nil)
+	req2 = requestAs("metallurgist-anna", req2)
 	rec2 := httptest.NewRecorder()
 	s.ListAudit(rec2, req2)
 	if rec2.Code != http.StatusOK {
@@ -107,21 +109,22 @@ func TestAuditAndAlarmLimits(t *testing.T) {
 	if events[0].Action != "alarm_limit.rationalise" || events[0].Actor != "metallurgist-anna" {
 		t.Errorf("audit event = %+v", events[0])
 	}
-	if events[0].ResourceID != "plant-a.crush.tpv" {
+	if events[0].ResourceID != "plant.crush.tpv" {
 		t.Errorf("resource id = %q", events[0].ResourceID)
 	}
 
 	// 3. DELETE rationalised limits -> 204, and the audit trail now has 2.
-	req3 := httptest.NewRequest(http.MethodDelete,
-		"/api/v1/alarms/limits/plant-a.crush.tpv", nil)
-	req3.SetPathValue("tag_id", "plant-a.crush.tpv")
+	req3 := requestAs("metallurgist-anna", httptest.NewRequest(http.MethodDelete,
+		"/api/v1/alarms/limits/plant.crush.tpv", nil))
+	req3.SetPathValue("tag_id", "plant.crush.tpv")
 	rec3 := httptest.NewRecorder()
 	s.DeleteAlarmLimit(rec3, req3)
 	if rec3.Code != http.StatusNoContent {
 		t.Fatalf("delete -> %d", rec3.Code)
 	}
 	rec4 := httptest.NewRecorder()
-	s.ListAudit(rec4, httptest.NewRequest(http.MethodGet, "/api/v1/access/audit?limit=10", nil))
+	s.ListAudit(rec4, requestAs("metallurgist-anna",
+		httptest.NewRequest(http.MethodGet, "/api/v1/access/audit?limit=10", nil)))
 	var events2 []store.AuditEvent
 	_ = json.Unmarshal(rec4.Body.Bytes(), &events2)
 	if len(events2) != 2 {

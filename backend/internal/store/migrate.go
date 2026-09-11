@@ -182,6 +182,82 @@ var migrations = []string{
 	`UPDATE roles SET permissions = permissions || ',control_process'
 	 WHERE id IN ('platform_admin', 'operator')
 	 AND permissions NOT LIKE '%control_process%'`,
+	// Registry tags carry a direction: field measurements are "input",
+	// actuator positions the platform may write are "output".
+	`ALTER TABLE tags ADD COLUMN direction TEXT NOT NULL DEFAULT 'input'`,
+	// ISA-18.2 alarm journal: one immutable row per lifecycle event
+	// (raised / cleared / acked / shelved). The current-state view stays in
+	// alarms; the journal answers "what happened, when, who acknowledged".
+	`CREATE TABLE IF NOT EXISTS alarm_events (
+		id TEXT PRIMARY KEY,
+		occurred_at TEXT NOT NULL,
+		tag_id TEXT NOT NULL,
+		metric TEXT NOT NULL DEFAULT '',
+		event TEXT NOT NULL,
+		severity TEXT NOT NULL DEFAULT '',
+		priority INTEGER NOT NULL DEFAULT 0,
+		message TEXT NOT NULL DEFAULT '',
+		actor TEXT NOT NULL DEFAULT '',
+		comment TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_alarm_events_time ON alarm_events (occurred_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_alarm_events_tag_time ON alarm_events (tag_id, occurred_at)`,
+	// Local authentication (TZ §12): users with PBKDF2 password hashes and
+	// opaque server-side sessions delivered as an HttpOnly cookie.
+	`CREATE TABLE IF NOT EXISTS users (
+		username TEXT PRIMARY KEY,
+		label TEXT NOT NULL DEFAULT '',
+		password_hash TEXT NOT NULL,
+		active INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS sessions (
+		token_hash TEXT PRIMARY KEY,
+		username TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		expires_at TEXT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions (expires_at)`,
+	// Supervisory control loops (TZ §9): one row per loop, replacing the
+	// single demo loop of control_setpoints/control_state. The PID runs in
+	// percent of the MV range; output is the mapped engineering value.
+	`CREATE TABLE IF NOT EXISTS control_loops (
+		id TEXT PRIMARY KEY,
+		label TEXT NOT NULL,
+		pv_tag TEXT NOT NULL,
+		mv_tag TEXT NOT NULL,
+		sp REAL NOT NULL,
+		sp_min REAL NOT NULL,
+		sp_max REAL NOT NULL,
+		out_min REAL NOT NULL DEFAULT 0,
+		out_max REAL NOT NULL DEFAULT 100,
+		kp REAL NOT NULL DEFAULT 0,
+		ki REAL NOT NULL DEFAULT 0,
+		kd REAL NOT NULL DEFAULT 0,
+		deadband REAL NOT NULL DEFAULT 0,
+		slew REAL NOT NULL DEFAULT 0,
+		mode TEXT NOT NULL DEFAULT 'manual',
+		state TEXT NOT NULL DEFAULT 'ok',
+		output REAL NOT NULL DEFAULT 0,
+		integral REAL NOT NULL DEFAULT 0,
+		prev_error REAL,
+		updated_by TEXT NOT NULL DEFAULT '',
+		updated_at TEXT NOT NULL
+	)`,
+	// One-shot manual actuator writes (TZ §9): a write request with a sequence
+	// number; the edge bridge writes each new value once and returns to hold.
+	`CREATE TABLE IF NOT EXISTS actuator_writes (
+		tag_id TEXT PRIMARY KEY,
+		value REAL NOT NULL,
+		seq INTEGER NOT NULL DEFAULT 1,
+		updated_by TEXT NOT NULL DEFAULT '',
+		updated_at TEXT NOT NULL
+	)`,
+	// Scenario control (TZ §16): operator-level permission for driving the
+	// demo process stand through /api/v1/scenario.
+	`UPDATE roles SET permissions = permissions || ',scenario_run'
+	 WHERE id IN ('platform_admin', 'operator')
+	 AND permissions NOT LIKE '%scenario_run%'`,
 }
 
 // Migrate applies pending migrations in a transaction.

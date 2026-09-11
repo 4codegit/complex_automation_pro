@@ -11,127 +11,91 @@ import (
 	"cap/internal/web"
 )
 
-// Routes builds the HTTP handler tree. It uses the standard library mux with
-// Go 1.22 method patterns — no web framework dependency.
-//
-// Sections select the route domains this process owns, one per microservice:
-//
-//	ingest    push ingestion (gateways -> platform)
-//	historian pull queries, aggregates, CSV reports
-//	alarms    alarm states, acknowledgement, rationalised limits
-//	profiles  ore profiles and change control
-//	registry  assets, tags, gateway registry
-//	identity  RBAC roles, assignments, audit trail
-//	live      WebSocket fan-out, simulator controls, event intake, SPA
-//
-// Routes() with no sections mounts everything: the all-in-one development
-// bundle (cmd/server). Split deployments pass their own subset (cmd/ingest,
-// cmd/historian, ...) and gateway-api fronts them on a single address.
-func (s *Server) Routes(sections ...string) http.Handler {
+// Routes builds the HTTP handler tree of the monolith. It uses the standard
+// library mux with Go 1.22 method patterns — no web framework dependency.
+// Route domains remain grouped so a future split (or a read-only replica)
+// can mount a subset, but capd always mounts everything.
+func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	all := len(sections) == 0
-	has := func(name string) bool {
-		if all {
-			return true
-		}
-		for _, sec := range sections {
-			if sec == name {
-				return true
-			}
-		}
-		return false
-	}
-
-	// Health is always mounted: every service must answer its own readiness.
+	// Health: liveness for the API, readiness for its dependencies.
 	mux.HandleFunc("GET /api/v1/health", s.HealthCheck)
 
-	if has("live") {
-		// SPA: the embedded dashboard owns all non-API GET paths (/, /assets/*,
-		// client-side routes). API and WebSocket patterns take precedence.
-		mux.Handle("GET /", web.Handler())
-	}
+	// SPA: the embedded dashboard owns all non-API GET paths (/, /assets/*,
+	// client-side routes). API and WebSocket patterns take precedence.
+	mux.Handle("GET /", web.Handler())
 
-	if has("ingest") {
-		mux.HandleFunc("POST /api/v1/ingest/telemetry", s.IngestTelemetry)
-		mux.HandleFunc("POST /api/v1/ingest/telemetry:batch", s.IngestTelemetryBatch)
-		mux.HandleFunc("POST /api/v1/ingest/gateway_events", s.IngestGatewayEvent)
-	}
+	// Ingest: the single telemetry entry point (edge gateways, calc service).
+	mux.HandleFunc("POST /api/v1/ingest/telemetry", s.IngestTelemetry)
+	mux.HandleFunc("POST /api/v1/ingest/telemetry:batch", s.IngestTelemetryBatch)
+	mux.HandleFunc("POST /api/v1/ingest/gateway_events", s.IngestGatewayEvent)
 
-	if has("historian") {
-		mux.HandleFunc("GET /api/v1/telemetry", s.TelemetryHistory)
-		mux.HandleFunc("GET /api/v1/telemetry/latest", s.TelemetryLatest)
-		mux.HandleFunc("GET /api/v1/telemetry/aggregate", s.TelemetryAggregate)
-		mux.HandleFunc("GET /api/v1/analytics/process", s.ProcessAnalytics)
-		mux.HandleFunc("GET /api/v1/alerts", s.ListAlerts)
-		mux.HandleFunc("GET /api/v1/alerts/latest", s.LatestAlert)
-		mux.HandleFunc("GET /api/v1/reports/readings/csv", s.ExportReadingsCSV)
-		mux.HandleFunc("GET /api/v1/reports/alerts/csv", s.ExportAlertsCSV)
-	}
+	// Historian: pull queries, aggregates, CSV reports.
+	mux.HandleFunc("GET /api/v1/telemetry", s.TelemetryHistory)
+	mux.HandleFunc("GET /api/v1/telemetry/latest", s.TelemetryLatest)
+	mux.HandleFunc("GET /api/v1/telemetry/aggregate", s.TelemetryAggregate)
+	mux.HandleFunc("GET /api/v1/alerts", s.ListAlerts)
+	mux.HandleFunc("GET /api/v1/alerts/latest", s.LatestAlert)
+	mux.HandleFunc("GET /api/v1/reports/readings/csv", s.ExportReadingsCSV)
+	mux.HandleFunc("GET /api/v1/reports/alerts/csv", s.ExportAlertsCSV)
 
-	if has("alarms") {
-		mux.HandleFunc("GET /api/v1/alarms/active", s.ActiveAlarms)
-		mux.HandleFunc("POST /api/v1/alarms/{id}/ack", s.AckAlarm)
-		// Alarm rationalisation (ADR-002 / ISA-18.2): plant-approved limits.
-		mux.HandleFunc("GET /api/v1/alarms/limits", s.ListAlarmLimits)
-		mux.HandleFunc("GET /api/v1/alarms/limits/{tag_id}", s.GetAlarmLimit)
-		mux.HandleFunc("PUT /api/v1/alarms/limits/{tag_id}", s.RationaliseAlarmLimit)
-		mux.HandleFunc("DELETE /api/v1/alarms/limits/{tag_id}", s.DeleteAlarmLimit)
-	}
+	// Alarms: ISA-18.2 states, acknowledgement, rationalised limits, journal.
+	mux.HandleFunc("GET /api/v1/alarms/active", s.ActiveAlarms)
+	mux.HandleFunc("GET /api/v1/alarms/journal", s.AlarmJournal)
+	mux.HandleFunc("POST /api/v1/alarms/{id}/ack", s.AckAlarm)
+	mux.HandleFunc("GET /api/v1/alarms/limits", s.ListAlarmLimits)
+	mux.HandleFunc("GET /api/v1/alarms/limits/{tag_id}", s.GetAlarmLimit)
+	mux.HandleFunc("PUT /api/v1/alarms/limits/{tag_id}", s.RationaliseAlarmLimit)
+	mux.HandleFunc("DELETE /api/v1/alarms/limits/{tag_id}", s.DeleteAlarmLimit)
 
-	if has("profiles") {
-		mux.HandleFunc("GET /api/v1/profiles", s.ListProfiles)
-		mux.HandleFunc("GET /api/v1/profiles/active", s.ActiveProfile)
-		mux.HandleFunc("POST /api/v1/profiles", s.CreateProfile)
-		mux.HandleFunc("POST /api/v1/profiles/{id}/approve", s.ApproveProfile)
-		mux.HandleFunc("POST /api/v1/profiles/{id}/activate", s.ActivateProfile)
-	}
+	// Ore profiles: versioned change control.
+	mux.HandleFunc("GET /api/v1/profiles", s.ListProfiles)
+	mux.HandleFunc("GET /api/v1/profiles/active", s.ActiveProfile)
+	mux.HandleFunc("POST /api/v1/profiles", s.CreateProfile)
+	mux.HandleFunc("POST /api/v1/profiles/{id}/approve", s.ApproveProfile)
+	mux.HandleFunc("POST /api/v1/profiles/{id}/activate", s.ActivateProfile)
 
-	if has("registry") {
-		mux.HandleFunc("GET /api/v1/assets", s.ListAssets)
-		mux.HandleFunc("POST /api/v1/assets", s.CreateAsset)
-		mux.HandleFunc("PUT /api/v1/assets/{id}", s.UpdateAsset)
-		mux.HandleFunc("DELETE /api/v1/assets/{id}", s.DeleteAsset)
-		mux.HandleFunc("GET /api/v1/tags", s.ListTags)
-		mux.HandleFunc("POST /api/v1/tags", s.CreateTag)
-		mux.HandleFunc("PUT /api/v1/tags/{id}", s.UpdateTag)
-		mux.HandleFunc("DELETE /api/v1/tags/{id}", s.DeleteTag)
-		mux.HandleFunc("GET /api/v1/gateways", s.ListGateways)
-	}
+	// Registry: assets, tags, gateways.
+	mux.HandleFunc("GET /api/v1/assets", s.ListAssets)
+	mux.HandleFunc("POST /api/v1/assets", s.CreateAsset)
+	mux.HandleFunc("PUT /api/v1/assets/{id}", s.UpdateAsset)
+	mux.HandleFunc("DELETE /api/v1/assets/{id}", s.DeleteAsset)
+	mux.HandleFunc("GET /api/v1/tags", s.ListTags)
+	mux.HandleFunc("POST /api/v1/tags", s.CreateTag)
+	mux.HandleFunc("PUT /api/v1/tags/{id}", s.UpdateTag)
+	mux.HandleFunc("DELETE /api/v1/tags/{id}", s.DeleteTag)
+	mux.HandleFunc("GET /api/v1/gateways", s.ListGateways)
 
-	if has("identity") {
-		mux.HandleFunc("GET /api/v1/access/roles", s.ListRoles)
-		mux.HandleFunc("POST /api/v1/access/roles", s.CreateRole)
-		mux.HandleFunc("PUT /api/v1/access/roles/{id}", s.UpdateRole)
-		mux.HandleFunc("DELETE /api/v1/access/roles/{id}", s.DeleteRole)
-		mux.HandleFunc("GET /api/v1/access/assignments", s.ListAssignments)
-		mux.HandleFunc("POST /api/v1/access/assignments", s.AssignRole)
-		mux.HandleFunc("DELETE /api/v1/access/assignments", s.RevokeRole)
-		mux.HandleFunc("GET /api/v1/access/whoami", s.WhoAmI)
-		mux.HandleFunc("GET /api/v1/access/audit", s.ListAudit)
-	}
+	// Identity: RBAC roles, assignments, audit trail, local login.
+	mux.HandleFunc("POST /api/v1/access/login", s.Login)
+	mux.HandleFunc("POST /api/v1/access/logout", s.Logout)
+	mux.HandleFunc("GET /api/v1/access/whoami", s.WhoAmI)
+	mux.HandleFunc("GET /api/v1/access/roles", s.ListRoles)
+	mux.HandleFunc("POST /api/v1/access/roles", s.CreateRole)
+	mux.HandleFunc("PUT /api/v1/access/roles/{id}", s.UpdateRole)
+	mux.HandleFunc("DELETE /api/v1/access/roles/{id}", s.DeleteRole)
+	mux.HandleFunc("GET /api/v1/access/assignments", s.ListAssignments)
+	mux.HandleFunc("POST /api/v1/access/assignments", s.AssignRole)
+	mux.HandleFunc("DELETE /api/v1/access/assignments", s.RevokeRole)
+	mux.HandleFunc("GET /api/v1/access/audit", s.ListAudit)
 
-	if has("live") {
-		// Live dashboard
-		mux.HandleFunc("GET /api/v1/ws", s.WebSocket)
-		// Supervisory control (ADR-003): opt-in via CONTROL_ENABLED; setpoint
-		// writes require the control_process permission and are audited.
-		mux.HandleFunc("GET /api/v1/control/status", s.ControlStatus)
-		mux.HandleFunc("PUT /api/v1/control/setpoints", s.ControlSetSetpoint)
-		mux.HandleFunc("GET /api/v1/control/output", s.ControlOutput)
-		// Cross-service event intake: the ingest service forwards accepted
-		// readings here so WebSocket subscribers keep their live feed in
-		// split mode (EVENT_SINKS on the ingest side).
-		mux.HandleFunc("POST /internal/events", s.InternalEvent)
-		// Development simulator (must be disabled in production)
-		mux.HandleFunc("GET /api/v1/simulator/status", s.SimulatorStatus)
-		mux.HandleFunc("POST /api/v1/simulator/start", s.SimulatorStart)
-		mux.HandleFunc("POST /api/v1/simulator/stop", s.SimulatorStop)
-		mux.HandleFunc("POST /api/v1/simulator/emergency", s.SimulatorEmergency)
-		mux.HandleFunc("POST /api/v1/simulator/emergency/stop", s.SimulatorEmergencyStop)
-	}
+	// Supervisory control (TZ §9): loops, actuator writes, bridge feed.
+	mux.HandleFunc("GET /api/v1/control/loops", s.ControlStatus)
+	mux.HandleFunc("PUT /api/v1/control/loops/{id}/setpoint", s.SetLoopSetpoint)
+	mux.HandleFunc("PUT /api/v1/control/loops/{id}/mode", s.SetLoopMode)
+	mux.HandleFunc("PUT /api/v1/control/loops/{id}/output", s.SetLoopOutput)
+	mux.HandleFunc("GET /api/v1/control/output", s.ControlOutput)
+	mux.HandleFunc("PUT /api/v1/actuators/{tag_id}", s.WriteActuator)
 
-	return withLogging(s.rbac(mux))
+	// Metallurgical balance (TZ §10) and process stand scenarios (TZ §16).
+	mux.HandleFunc("GET /api/v1/metallurgy/summary", s.MetallurgySummary)
+	mux.HandleFunc("POST /api/v1/scenario", s.Scenario)
+
+	// Live dashboard fan-out.
+	mux.HandleFunc("GET /api/v1/ws", s.WebSocket)
+
+	// Middleware order: logging → session authentication → RBAC.
+	return withLogging(s.authenticate(s.rbac(mux)))
 }
 
 type statusWriter struct {
@@ -157,7 +121,7 @@ func (w *statusWriter) Flush() {
 	}
 }
 
-// Hijack lets WebSocket upgrades pass through the logging wrapper: without it
+// Hijack lets WebSocket upgrades pass through the wrappers: without it
 // gorilla/websocket cannot upgrade and returns 500.
 func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	h, ok := w.ResponseWriter.(http.Hijacker)

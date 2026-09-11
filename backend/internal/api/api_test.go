@@ -6,26 +6,40 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"cap/internal/alarms"
 	"cap/internal/api"
+	"cap/internal/auth"
 	"cap/internal/config"
 	"cap/internal/hub"
-	"cap/internal/simulator"
 	"cap/internal/store"
 )
 
 type testEnv struct {
 	server *httptest.Server
 	db     *sql.DB
+	hub    *hub.Hub
+	alarms *alarms.Engine
+	client *http.Client // carries the admin session cookie
 }
 
-// registerCrushing mirrors the Python conftest: a fresh DB seeded with the demo
-// registry. The crushing asset carries exactly particle_size + pulp_density.
+// newTestEnv builds a fully seeded server: flotation plant registry, alarm
+// limits, control loops, roles and an admin account. The returned client is
+// authenticated as admin (platform_admin) via a real login.
 func newTestEnv(t *testing.T) *testEnv {
+	t.Helper()
+	env := newTestEnvNoLogin(t)
+	env.login(t, "admin", "admin")
+	return env
+}
+
+// newTestEnvNoLogin returns the server without an authenticated client.
+func newTestEnvNoLogin(t *testing.T) *testEnv {
 	t.Helper()
 	ctx := context.Background()
 
@@ -39,47 +53,175 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("migrate: %v", err)
 	}
 	if err := store.SeedRegistry(ctx, db); err != nil {
-		t.Fatalf("seed: %v", err)
+		t.Fatalf("seed registry: %v", err)
+	}
+	if err := store.SeedAlarmLimits(ctx, db); err != nil {
+		t.Fatalf("seed alarm limits: %v", err)
+	}
+	if err := store.SeedControlLoops(ctx, db); err != nil {
+		t.Fatalf("seed control loops: %v", err)
 	}
 	if err := store.SeedRoles(ctx, db); err != nil {
 		t.Fatalf("seed roles: %v", err)
 	}
-	// Tests issue mutations without an X-User header (anonymous subject), so
-	// grant platform_admin to "anonymous" once here. Production assigns roles
-	// through the access/assignments API under manage_users permission.
-	if err := store.AssignRole(ctx, db, "anonymous", "platform_admin", "tests"); err != nil {
-		t.Fatalf("seed assignment: %v", err)
-	}
 	if err := store.EnsureDefaultProfile(ctx, db); err != nil {
 		t.Fatalf("seed profiles: %v", err)
 	}
+	hash, err := auth.HashPassword("admin")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if err := store.CreateUser(ctx, db, &store.User{Username: "admin", PasswordHash: hash, Active: true}); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
 
 	h := hub.New()
-	sim := simulator.New(db, h, 10*time.Millisecond, 1*time.Second)
+	eng := alarms.New(db, h)
 	cfg := &config.Settings{
 		Environment:  "test",
 		StalenessSec: 60 * time.Second,
 		MaxBatchSize: 500,
 		DefaultLimit: 100,
 		MaxLimit:     1000,
-		ControlLoop:  config.DefaultControlLoop,
-		ControlStale: 15 * time.Second,
+		ControlStale: 10 * time.Second,
 	}
-	srv := api.New(db, h, sim, cfg)
+	srv := api.New(db, h, cfg, eng, nil)
 	ts := httptest.NewServer(srv.Routes())
 	t.Cleanup(ts.Close)
 
-	return &testEnv{server: ts, db: db}
+	// A plain client (no cookie jar) so helper calls work pre-login.
+	return &testEnv{server: ts, db: db, hub: h, alarms: eng, client: &http.Client{}}
+}
+
+// login authenticates the env client as the given user.
+func (env *testEnv) login(t *testing.T, username, password string) {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookie jar: %v", err)
+	}
+	env.client = &http.Client{Jar: jar}
+	resp, body := env.do(t, http.MethodPost, "/api/v1/access/login",
+		map[string]string{"username": username, "password": password})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login %s: %d body=%s", username, resp.StatusCode, body)
+	}
+}
+
+// sessionToken creates a server-side session for an existing user and returns
+// the raw token (used by RBAC tests that switch subjects).
+func sessionToken(env *testEnv, subject string) (string, error) {
+	token, err := auth.NewToken()
+	if err != nil {
+		return "", err
+	}
+	err = store.CreateSession(context.Background(), env.db, auth.HashToken(token), subject, time.Hour, time.Now().UTC())
+	return token, err
+}
+
+// seedUser creates a login account with the given password.
+func seedUser(t *testing.T, env *testEnv, username string) {
+	t.Helper()
+	seedUserPassword(t, env, username, "pw-"+username)
+}
+
+func seedUserPassword(t *testing.T, env *testEnv, username, password string) {
+	t.Helper()
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if err := store.CreateUser(context.Background(), env.db, &store.User{
+		Username: username, PasswordHash: hash, Active: true,
+	}); err != nil {
+		t.Fatalf("create user %s: %v", username, err)
+	}
+}
+
+// seedUserWithRole creates a user, assigns the system role and creates the
+// server-side session used by callWithCookie.
+func seedUserWithRole(t *testing.T, env *testEnv, username, role string) {
+	t.Helper()
+	seedUserPassword(t, env, username, "pw-"+username)
+	if err := store.AssignRole(context.Background(), env.db, username, role, "tests"); err != nil {
+		t.Fatalf("assign %s: %v", username, err)
+	}
+}
+
+// do performs a JSON round-trip with the authenticated client.
+func (env *testEnv) do(t *testing.T, method, path string, body any) (*http.Response, string) {
+	t.Helper()
+	var rd *bytes.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		rd = bytes.NewReader(raw)
+	} else {
+		rd = bytes.NewReader(nil)
+	}
+	req, err := http.NewRequest(method, env.server.URL+path, rd)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := env.client.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	_, _ = buf.ReadFrom(resp.Body)
+	return resp, buf.String()
+}
+
+func postJSON(t *testing.T, env *testEnv, path string, body any) (*http.Response, map[string]any) {
+	t.Helper()
+	resp, raw := env.do(t, http.MethodPost, path, body)
+	return resp, decodeMap(t, raw)
+}
+
+func putJSON(t *testing.T, env *testEnv, path string, body any) (*http.Response, map[string]any) {
+	t.Helper()
+	resp, raw := env.do(t, http.MethodPut, path, body)
+	return resp, decodeMap(t, raw)
+}
+
+func getJSON(t *testing.T, env *testEnv, path string) (*http.Response, []map[string]any) {
+	t.Helper()
+	resp, raw := env.do(t, http.MethodGet, path, nil)
+	out := []map[string]any{}
+	_ = json.Unmarshal([]byte(raw), &out)
+	return resp, out
+}
+
+func getMap(t *testing.T, env *testEnv, path string) (*http.Response, map[string]any) {
+	t.Helper()
+	resp, raw := env.do(t, http.MethodGet, path, nil)
+	return resp, decodeMap(t, raw)
+}
+
+func decodeMap(t *testing.T, raw string) map[string]any {
+	t.Helper()
+	out := map[string]any{}
+	if raw == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("decode %q: %v", raw, err)
+	}
+	return out
 }
 
 const (
-	assetID        = "plant-a.crushing"
-	particleTagID  = "plant-a.crushing.particle_size"
-	densityTagID   = "plant-a.crushing.pulp_density"
-	messageIDOne   = "018f0e6b-7f1a-7e1d-a0bd-5b31d918c001"
-	messageIDTwo   = "018f0e6b-7f1a-7e1d-a0bd-5b31d918c002"
-	messageIDThree = "018f0e6b-7f1a-7e1d-a0bd-5b31d918c003"
-	observedAtStr  = "2026-07-31T08:15:30.125Z"
+	assetID       = "plant.crushing"
+	feedTagID     = "plant.crushing.fi101" // t/h
+	pHTagID       = "plant.flotation.ai301"
+	messageIDOne  = "018f0e6b-7f1a-7e1d-a0bd-5b31d918c001"
+	messageIDTwo  = "018f0e6b-7f1a-7e1d-a0bd-5b31d918c002"
+	messageIDThr  = "018f0e6b-7f1a-7e1d-a0bd-5b31d918c003"
+	observedAtStr = "2026-07-31T08:15:30.125Z"
 )
 
 type payloadOpts struct {
@@ -93,13 +235,13 @@ type payloadOpts struct {
 
 func telemetryPayload(o payloadOpts) map[string]any {
 	if o.tagID == "" {
-		o.tagID = particleTagID
+		o.tagID = feedTagID
 	}
 	if o.unit == "" {
-		o.unit = "mm"
+		o.unit = "t/h"
 	}
 	if o.value == nil {
-		o.value = 5.4
+		o.value = 100.0
 	}
 	if o.assetID == "" {
 		o.assetID = assetID
@@ -120,34 +262,6 @@ func telemetryPayload(o payloadOpts) map[string]any {
 		"quality":         "good",
 		"profile_id":      "ore-profile-pilot-01",
 	}
-}
-
-func postJSON(t *testing.T, env *testEnv, path string, body any) (*http.Response, map[string]any) {
-	t.Helper()
-	raw, err := json.Marshal(body)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	resp, err := http.Post(env.server.URL+path, "application/json", bytes.NewReader(raw))
-	if err != nil {
-		t.Fatalf("post %s: %v", path, err)
-	}
-	defer resp.Body.Close()
-	var out map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	return resp, out
-}
-
-func getJSON(t *testing.T, env *testEnv, path string) (*http.Response, []map[string]any) {
-	t.Helper()
-	resp, err := http.Get(env.server.URL + path)
-	if err != nil {
-		t.Fatalf("get %s: %v", path, err)
-	}
-	defer resp.Body.Close()
-	var out []map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	return resp, out
 }
 
 func parseTime(t *testing.T, s string) time.Time {
@@ -176,7 +290,7 @@ func TestIngestAcceptsReadingAndExposesItThroughPullAPI(t *testing.T) {
 		t.Fatalf("unexpected item: %v", item)
 	}
 
-	path := "/api/v1/telemetry?tag_id=" + particleTagID +
+	path := "/api/v1/telemetry?tag_id=" + feedTagID +
 		"&asset_id=" + assetID +
 		"&from_time=2026-07-31T08:00:00Z&to_time=2026-07-31T09:00:00Z"
 	gresp, history := getJSON(t, env, path)
@@ -186,20 +300,14 @@ func TestIngestAcceptsReadingAndExposesItThroughPullAPI(t *testing.T) {
 	if len(history) != 1 {
 		t.Fatalf("history len = %d, want 1", len(history))
 	}
-	if history[0]["value"] != 5.4 {
+	if history[0]["value"] != 100.0 {
 		t.Fatalf("value = %v", history[0]["value"])
 	}
 	if history[0]["quality"] != "good" {
 		t.Fatalf("quality = %v", history[0]["quality"])
 	}
 
-	latestResp, err := http.Get(env.server.URL + "/api/v1/telemetry/latest?tag_id=" + particleTagID)
-	if err != nil {
-		t.Fatalf("latest: %v", err)
-	}
-	defer latestResp.Body.Close()
-	var latest map[string]any
-	_ = json.NewDecoder(latestResp.Body).Decode(&latest)
+	_, latest := getMap(t, env, "/api/v1/telemetry/latest?tag_id="+feedTagID)
 	if latest["message_id"] != messageIDOne {
 		t.Fatalf("latest message_id = %v", latest["message_id"])
 	}
@@ -236,7 +344,7 @@ func TestIngestRejectsUnknownOrIncompatibleRegistryData(t *testing.T) {
 		{
 			name: "unknown_tag",
 			override: func(p map[string]any) map[string]any {
-				p["tag_id"] = "plant-a.crushing.unknown"
+				p["tag_id"] = "plant.crushing.unknown"
 				return p
 			},
 			expectedMsg: "unknown_tag",
@@ -244,7 +352,7 @@ func TestIngestRejectsUnknownOrIncompatibleRegistryData(t *testing.T) {
 		{
 			name: "asset_tag_mismatch",
 			override: func(p map[string]any) map[string]any {
-				p["asset_id"] = "plant-a.flotation"
+				p["asset_id"] = "plant.flotation"
 				return p
 			},
 			expectedMsg: "asset_tag_mismatch",
@@ -286,10 +394,11 @@ func TestBatchPreservesItemResultsAndStoresOnlyAcceptedReadings(t *testing.T) {
 	accepted := telemetryPayload(payloadOpts{messageID: messageIDOne})
 	rejected := telemetryPayload(payloadOpts{messageID: messageIDTwo, unit: "cm"})
 	secondAccepted := telemetryPayload(payloadOpts{
-		messageID:  messageIDThree,
-		tagID:      densityTagID,
-		unit:       "g/cm3",
-		value:      1.62,
+		messageID:  messageIDThr,
+		tagID:      pHTagID,
+		unit:       "pH",
+		value:      10.2,
+		assetID:    "plant.flotation",
 		observedAt: "2026-07-31T08:15:31.125Z",
 	})
 
@@ -314,33 +423,42 @@ func TestBatchPreservesItemResultsAndStoresOnlyAcceptedReadings(t *testing.T) {
 	if len(history) != 2 {
 		t.Fatalf("history len = %d, want 2", len(history))
 	}
-	if history[0]["message_id"] != messageIDThree || history[1]["message_id"] != messageIDOne {
+	if history[0]["message_id"] != messageIDThr || history[1]["message_id"] != messageIDOne {
 		t.Fatalf("history order = %v", history)
 	}
 }
 
-func TestRegistryAndRolesAreDiscoverable(t *testing.T) {
+func TestRegistryCatalogIsSeeded(t *testing.T) {
 	env := newTestEnv(t)
 
 	resp, assets := getJSON(t, env, "/api/v1/assets")
-	if resp.StatusCode != http.StatusOK || len(assets) == 0 {
-		t.Fatalf("assets status/len = %d/%d", resp.StatusCode, len(assets))
+	if resp.StatusCode != http.StatusOK || len(assets) != 6 {
+		t.Fatalf("assets status/len = %d/%d, want 6 assets", resp.StatusCode, len(assets))
 	}
-	if assets[0]["id"] != assetID {
-		t.Fatalf("assets[0] id = %v", assets[0]["id"])
+	byID := map[string]bool{}
+	for _, a := range assets {
+		byID[a["id"].(string)] = true
+	}
+	for _, want := range []string{"plant.crushing", "plant.grinding", "plant.flotation", "plant.thickening", "plant.filtration", "plant.metallurgy"} {
+		if !byID[want] {
+			t.Fatalf("missing asset %q", want)
+		}
 	}
 
-	_, tags := getJSON(t, env, "/api/v1/tags?asset_id="+assetID)
-	ids := make(map[string]bool, len(tags))
-	for _, tg := range tags {
-		ids[tg["id"].(string)] = true
+	_, tags := getJSON(t, env, "/api/v1/tags")
+	if len(tags) != 43 { // 28 inputs + 7 actuators + 8 calc tags
+		t.Fatalf("tags = %d, want 43", len(tags))
 	}
-	if !ids[densityTagID] || !ids[particleTagID] || len(tags) != 2 {
-		t.Fatalf("tags for crushing = %v", tags)
+	directions := map[string]int{}
+	for _, tg := range tags {
+		directions[tg["direction"].(string)]++
+	}
+	if directions["output"] != 7 {
+		t.Fatalf("output tags = %d, want 7", directions["output"])
 	}
 
 	_, roles := getJSON(t, env, "/api/v1/access/roles")
-	roleSet := make(map[string]bool)
+	roleSet := map[string]bool{}
 	for _, r := range roles {
 		roleSet[r["id"].(string)] = true
 	}

@@ -12,7 +12,7 @@ import (
 // UpsertAlarmActive ensures an active alarm exists for a tag. If one is already
 // active it refreshes it; otherwise it inserts a new active_unacknowledged row.
 func UpsertAlarmActive(ctx context.Context, db *sql.DB, tagID, metric, severity, message string, now time.Time) error {
-	existing, err := alarmByTag(ctx, db, tagID)
+	existing, err := GetAlarmByTag(ctx, db, tagID)
 	if err == nil {
 		if isActiveState(existing.State) {
 			_, err := db.ExecContext(ctx,
@@ -43,7 +43,7 @@ func UpsertAlarmActive(ctx context.Context, db *sql.DB, tagID, metric, severity,
 
 // ClearAlarm marks an active alarm returned_to_normal.
 func ClearAlarm(ctx context.Context, db *sql.DB, tagID string, now time.Time) error {
-	existing, err := alarmByTag(ctx, db, tagID)
+	existing, err := GetAlarmByTag(ctx, db, tagID)
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
@@ -138,7 +138,8 @@ func ListActiveAlarms(ctx context.Context, db *sql.DB, limit int) ([]Alarm, erro
 const alarmSelect = `SELECT id, tag_id, metric, state, severity, priority, message,
 	observed_at, ack_by, ack_at, ack_comment, shelved_until, cleared_at, updated_at FROM alarms`
 
-func alarmByTag(ctx context.Context, db *sql.DB, tagID string) (*Alarm, error) {
+// GetAlarmByTag returns the current alarm row for a tag, or ErrNotFound.
+func GetAlarmByTag(ctx context.Context, db *sql.DB, tagID string) (*Alarm, error) {
 	a, err := scanAlarm(db.QueryRowContext(ctx, alarmSelect+` WHERE tag_id = ?`, tagID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

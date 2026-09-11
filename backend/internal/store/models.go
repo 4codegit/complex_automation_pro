@@ -15,8 +15,9 @@ type Asset struct {
 	Active      bool   `json:"active"`
 }
 
-// Tag is a registered signal (one sensor / derived value). This is the single
-// abstraction for "any sensor": new devices are registry rows, not code.
+// Tag is a registered signal (one sensor, actuator position or derived value).
+// This is the single abstraction for "any sensor": new devices are registry
+// rows, not code.
 type Tag struct {
 	ID                      string   `json:"id"`
 	AssetID                 string   `json:"asset_id"`
@@ -28,7 +29,16 @@ type Tag struct {
 	SamplingIntervalSeconds float64  `json:"sampling_interval_seconds"`
 	Criticality             string   `json:"criticality"`
 	Active                  bool     `json:"active"`
+	// Direction distinguishes field measurements (input) from actuator
+	// positions the platform may write (output).
+	Direction string `json:"direction"`
 }
+
+// Tag directions.
+const (
+	DirectionInput  = "input"
+	DirectionOutput = "output"
+)
 
 // Reading is one stored canonical measurement.
 type Reading struct {

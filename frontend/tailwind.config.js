@@ -19,8 +19,9 @@ export default {
         alarm: 'rgb(var(--c-alarm) / <alpha-value>)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
-        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        // System stacks only: the plant network is air-gapped, no CDN fonts.
+        sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       animation: {
         'pulse-red': 'pulse-red 1.2s ease-in-out infinite',

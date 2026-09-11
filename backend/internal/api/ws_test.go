@@ -2,6 +2,8 @@ package api_test
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -9,49 +11,74 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// TestWebSocketStreamsLiveTelemetry guards the Hijack path: the logging
-// middleware must let WebSocket upgrades through, or the dashboard goes dark.
+// wsCookie extracts the session cookie from the authenticated client jar so
+// the WebSocket dialer can present it.
+func wsCookie(t *testing.T, env *testEnv) string {
+	t.Helper()
+	u, err := url.Parse(env.server.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+	for _, c := range env.client.Jar.Cookies(u) {
+		if c.Name == "cap_session" {
+			return c.Name + "=" + c.Value
+		}
+	}
+	t.Fatal("no session cookie in jar")
+	return ""
+}
+
+// TestWebSocketStreamsLiveTelemetry guards the Hijack path: the auth and
+// logging middleware must let authenticated WebSocket upgrades through, or
+// the dashboard goes dark. Telemetry events follow the TZ §13 shape.
 func TestWebSocketStreamsLiveTelemetry(t *testing.T) {
 	env := newTestEnv(t)
 	wsURL := "ws" + strings.TrimPrefix(env.server.URL, "http") + "/api/v1/ws"
 
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	hdr := http.Header{"Cookie": []string{wsCookie(t, env)}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, hdr)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
 	}
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 
-	// Simulator broadcasts emergency events; ingest pushes telemetry events.
-	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"trigger_emergency"}`)); err != nil {
-		t.Fatalf("write: %v", err)
-	}
 	resp, _ := postJSON(t, env, "/api/v1/ingest/telemetry", telemetryPayload(payloadOpts{messageID: messageIDOne}))
 	if resp.StatusCode != 202 {
 		t.Fatalf("ingest status = %d", resp.StatusCode)
 	}
 
-	var sawTelemetry, sawEmergency bool
-	for !sawTelemetry || !sawEmergency {
+	var sawTelemetry bool
+	for !sawTelemetry {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			t.Fatalf("read ws: %v (telemetry=%v emergency=%v)", err, sawTelemetry, sawEmergency)
+			t.Fatalf("read ws: %v", err)
 		}
 		var ev map[string]any
 		if err := json.Unmarshal(data, &ev); err != nil {
 			continue
 		}
-		switch ev["type"] {
-		case "telemetry":
+		if ev["type"] == "telemetry" {
 			sawTelemetry = true
-			if ev["stage"] == "" {
-				t.Fatalf("telemetry event missing stage: %v", ev)
+			if ev["tag_id"] != feedTagID {
+				t.Fatalf("unexpected tag: %v", ev)
 			}
-			if ev["metric"] != "particle_size" {
-				t.Fatalf("unexpected metric %v", ev["metric"])
+			if ev["value"] != 100.0 {
+				t.Fatalf("unexpected value: %v", ev)
 			}
-		case "emergency_start":
-			sawEmergency = true
+			if ev["quality"] != "good" {
+				t.Fatalf("unexpected quality: %v", ev)
+			}
 		}
+	}
+}
+
+// TestWebSocketRejectsUnauthenticatedClients: no session cookie, no upgrade.
+func TestWebSocketRejectsUnauthenticatedClients(t *testing.T) {
+	env := newTestEnvNoLogin(t)
+	wsURL := "ws" + strings.TrimPrefix(env.server.URL, "http") + "/api/v1/ws"
+	_, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err == nil {
+		t.Fatal("unauthenticated ws upgrade succeeded, want rejection")
 	}
 }

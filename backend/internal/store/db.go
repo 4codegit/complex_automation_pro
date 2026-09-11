@@ -48,7 +48,7 @@ func parseDSN(dsn string) (driver, source string, err error) {
 			if strings.Contains(src, "?") {
 				sep = "&"
 			}
-			src += sep + "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+			src += sep + "_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
 		}
 		return "sqlite", src, nil
 	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):

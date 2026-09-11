@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -15,32 +15,52 @@ import (
 )
 
 // ControlWriteBridge is the only component in CAP allowed to write to field
-// equipment (ADR-003). It polls the server's control/output endpoint and, when
-// the loop reports status "auto", writes the computed output into ONE Modbus
-// holding register (FC6). Any poll or connection failure leaves the actuator
-// at its last value — the server-side watchdog zeroes the output on stale PV.
+// equipment (TZ §9). It polls the server's control/output feed and translates
+// it into Modbus FC6 holding-register writes:
+//   - status "auto" (a supervisory loop in auto): the mapped loop output is
+//     written on every poll;
+//   - status "hold" (a one-shot manual actuator write): written exactly once,
+//     when its seq is newer than the last delivered seq;
+//   - any poll or connection failure leaves the actuator at its last value —
+//     losing the platform never resets field equipment (IEC 61511 instinct).
 type ControlWriteBridge struct {
-	cfg     *Config
-	handler *modbus.TCPClientHandler
-	client  modbus.Client
-	spec    modbusReg
-	http    *http.Client
+	cfg   *Config
+	http  *http.Client
+	byTag map[string]modbusReg // mv tag -> register spec
+	// writtenSeq remembers the last delivered seq per tag (manual writes).
+	writtenSeq map[string]int64
+	handler    *modbus.TCPClientHandler
+	client     modbus.Client
 }
 
-// NewControlWriteBridge validates the write register spec. Only holding
-// registers (fc=3) are writable; anything else is a configuration error.
+// NewControlWriteBridge indexes the writable holding-register specs from the
+// TAGS configuration. Only hr (FC3/FC6) entries can be driven.
 func NewControlWriteBridge(cfg *Config) (*ControlWriteBridge, error) {
-	spec, err := parseModbusSpec(cfg.ControlWrite)
-	if err != nil {
-		return nil, fmt.Errorf("CONTROL_WRITE: %w", err)
+	byTag := map[string]modbusReg{}
+	for _, t := range cfg.Tags {
+		if t.Modbus == "" {
+			continue
+		}
+		spec, err := parseModbusSpec(t.Modbus)
+		if err != nil {
+			return nil, fmt.Errorf("tag %s: %w", t.TagID, err)
+		}
+		if spec.fc == 3 {
+			byTag[t.TagID] = spec
+		}
 	}
-	if spec.fc != 3 {
-		return nil, fmt.Errorf("CONTROL_WRITE: only holding registers (hr) are writable, got fc=%d", spec.fc)
+	if len(byTag) == 0 {
+		return nil, fmt.Errorf("no writable holding registers (hr) in TAGS")
 	}
-	return &ControlWriteBridge{cfg: cfg, spec: spec, http: &http.Client{Timeout: 3 * time.Second}}, nil
+	return &ControlWriteBridge{
+		cfg:        cfg,
+		http:       &http.Client{Timeout: 3 * time.Second},
+		byTag:      byTag,
+		writtenSeq: map[string]int64{},
+	}, nil
 }
 
-// Run polls the server and writes the actuator register until ctx ends.
+// Run polls the server and writes actuator registers until ctx ends.
 func (b *ControlWriteBridge) Run(ctx context.Context) {
 	poll := b.cfg.ControlPoll
 	if poll <= 0 {
@@ -48,8 +68,8 @@ func (b *ControlWriteBridge) Run(ctx context.Context) {
 	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
-	log.Printf("[gateway/control] WRITE BRIDGE ACTIVE: out=%s -> %s %s (FC6, poll %s) — the platform can now write to field equipment",
-		b.cfg.ControlOutTag, b.cfg.ModbusAddr, b.specDesc(), poll)
+	log.Printf("[gateway/control] WRITE BRIDGE ACTIVE: %s -> %d writable registers (FC6, poll %s) — the platform can now write to field equipment",
+		b.cfg.ModbusAddr, len(b.byTag), poll)
 	for {
 		select {
 		case <-ctx.Done():
@@ -61,40 +81,70 @@ func (b *ControlWriteBridge) Run(ctx context.Context) {
 	}
 }
 
+type outputItem struct {
+	TagID  string  `json:"tag_id"`
+	Value  float64 `json:"value"`
+	Seq    int64   `json:"seq"`
+	Status string  `json:"status"`
+}
+
 func (b *ControlWriteBridge) tick(ctx context.Context) {
-	url := fmt.Sprintf("%s/api/v1/control/output?tag_id=%s", strings.TrimRight(b.cfg.ServerURL, "/"), url.QueryEscape(b.cfg.ControlOutTag))
+	url := strings.TrimRight(b.cfg.ServerURL, "/") + "/api/v1/control/output"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return
 	}
 	resp, err := b.http.Do(req)
 	if err != nil {
-		return // server unreachable: hold the last actuator value
+		return // server unreachable: hold the last actuator values
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body)
 		return
 	}
-	var payload struct {
-		Output float64 `json:"output"`
-		Status string  `json:"status"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil || payload.Status != "auto" {
+	var items []outputItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
 		return
 	}
-	raw := int(math.Min(65535, math.Max(0, math.Round(payload.Output/b.spec.scale))))
+	for _, item := range items {
+		spec, ok := b.byTag[item.TagID]
+		if !ok {
+			continue
+		}
+		switch item.Status {
+		case "auto":
+			b.write(item.TagID, spec, item.Value)
+		case "hold":
+			if item.Seq > b.writtenSeq[item.TagID] {
+				if b.write(item.TagID, spec, item.Value) {
+					b.writtenSeq[item.TagID] = item.Seq
+				}
+			}
+		default:
+			// manual loop output: the operator holds the register, the server
+			// mirrors the frozen value — nothing to write.
+		}
+	}
+}
+
+// write performs the FC6 write, converting engineering units to raw register
+// counts via the tag scale.
+func (b *ControlWriteBridge) write(tagID string, spec modbusReg, value float64) bool {
+	raw := int(math.Min(65535, math.Max(0, math.Round(value/spec.scale))))
 	if b.handler == nil {
 		if err := b.connect(); err != nil {
 			log.Printf("[gateway/control] connect: %v", err)
-			return
+			return false
 		}
 	}
-	if _, err := b.client.WriteSingleRegister(b.spec.addr, uint16(raw)); err != nil {
-		log.Printf("[gateway/control] write HR%d=%d: %v", b.spec.addr, raw, err)
+	if _, err := b.client.WriteSingleRegister(spec.addr, uint16(raw)); err != nil {
+		log.Printf("[gateway/control] write %s HR%d=%d: %v", tagID, spec.addr, raw, err)
 		b.reset()
-		return
+		return false
 	}
-	log.Printf("[gateway/control] output %.1f%% -> HR%d=%d", payload.Output, b.spec.addr, raw)
+	log.Printf("[gateway/control] %s -> HR%d=%d (%.3g)", tagID, spec.addr, raw, value)
+	return true
 }
 
 func (b *ControlWriteBridge) connect() error {
@@ -115,8 +165,4 @@ func (b *ControlWriteBridge) reset() {
 		b.handler = nil
 		b.client = nil
 	}
-}
-
-func (b *ControlWriteBridge) specDesc() string {
-	return fmt.Sprintf("addr=%d type-kind=%d scale=%g", b.spec.addr, b.spec.kind, b.spec.scale)
 }

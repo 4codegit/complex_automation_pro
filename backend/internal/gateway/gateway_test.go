@@ -110,7 +110,7 @@ func TestSenderBackfillsBufferAfterOutage(t *testing.T) {
 	}
 
 	// 2. Server is back: the sender drains the queue.
-	sender := NewSender(srv.URL, 100, 10*time.Millisecond)
+	sender := NewSender(srv.URL, "", 100, 10*time.Millisecond)
 	go sender.Run(ctx, buf)
 
 	deadline := time.After(5 * time.Second)
@@ -181,7 +181,7 @@ func TestSenderDropsRejectedAndKeepsOthers(t *testing.T) {
 
 	var rejectedMu sync.Mutex
 	rejectedIDs := map[string]string{}
-	sender := NewSender(srv.URL, 100, 10*time.Millisecond)
+	sender := NewSender(srv.URL, "", 100, 10*time.Millisecond)
 	sender.Rejected = func(mid, reason string) {
 		rejectedMu.Lock()
 		rejectedIDs[mid] = reason

@@ -15,9 +15,86 @@ var ErrNotFound = errors.New("not found")
 // ErrDuplicate is returned when the (gateway_id, message_id) pair exists.
 var ErrDuplicate = errors.New("duplicate message")
 
-// SeedRegistry inserts demo assets/tags only when the tables are empty, so that
-// development and tests have a predictable starting point. Live plants populate
-// the registry through the change-controlled administrative workflow instead.
+// seedAssets is the flotation plant asset tree (TZ §6).
+var seedAssets = []Asset{
+	{ID: "plant.crushing", Name: "Дробление (бункер, питатель, дробилка)", Area: "Подготовка", Criticality: "high", Active: true},
+	{ID: "plant.grinding", Name: "Измельчение (мельница, гидроциклон)", Area: "Подготовка", Criticality: "critical", Active: true},
+	{ID: "plant.flotation", Name: "Флотация (rougher/scavenger, реагенты)", Area: "Обогащение", Criticality: "critical", Active: true},
+	{ID: "plant.thickening", Name: "Сгущение", Area: "Обезвоживание", Criticality: "high", Active: true},
+	{ID: "plant.filtration", Name: "Фильтрация и отгрузка", Area: "Обезвоживание", Criticality: "medium", Active: true},
+	{ID: "plant.metallurgy", Name: "Расчётные показатели", Area: "Виртуальный", Criticality: "low", Active: true},
+}
+
+// seedTagSpec is one registry row: full tag id suffix, RU label, unit,
+// engineering scale and criticality. The prefix ("plant.crushing." etc.) is
+// derived from the asset in seedTags below.
+type seedTagSpec struct {
+	metric   string
+	asset    string
+	name     string
+	unit     string
+	min, max float64
+	crit     string
+}
+
+// seedTags is the flotation plant instrument catalogue (TZ §7): 28 input
+// measurements, 7 output actuator positions and 8 derived metallurgical
+// values. Register maps live with the edge gateway configuration.
+var seedTags = []seedTagSpec{
+	// Crushing / ore feed
+	{"fi101", "plant.crushing", "Производительность питателя", "t/h", 0, 200, "high"},
+	{"ei101", "plant.crushing", "Мощность дробилки", "kW", 0, 400, "medium"},
+	{"tit101", "plant.crushing", "Температура пульпы", "C", 5, 45, "low"},
+	{"si101", "plant.crushing", "Уровень рудного бункера", "%", 0, 100, "high"},
+	{"hc101", "plant.crushing", "Задание питателя", "t/h", 0, 200, "medium"},
+	// Grinding / classification
+	{"ei201", "plant.grinding", "Мощность мельницы", "kW", 0, 2500, "critical"},
+	{"fi201", "plant.grinding", "Свежая вода в мельницу", "m3/h", 0, 300, "medium"},
+	{"pi201", "plant.grinding", "Давление питания гидроциклона", "kPa", 0, 350, "high"},
+	{"di202", "plant.grinding", "Плотность слива гидроциклона", "g/l", 1300, 1750, "high"},
+	{"xi201", "plant.grinding", "Крупность слива P80", "um", 40, 300, "critical"},
+	{"fi202", "plant.grinding", "Расход пульпы на гидроциклон", "m3/h", 0, 600, "medium"},
+	{"fc201", "plant.grinding", "Клапан воды мельницы", "%", 0, 100, "medium"},
+	// Flotation
+	{"li301", "plant.flotation", "Уровень пульпы во флотомашине", "mm", 200, 800, "critical"},
+	{"fi301", "plant.flotation", "Расход воздуха аэрации", "m3/h", 0, 600, "medium"},
+	{"ai301", "plant.flotation", "pH пульпы", "pH", 4, 13, "high"},
+	{"qi301", "plant.flotation", "Расход собирателя (факт)", "ml/min", 0, 500, "high"},
+	{"qi302", "plant.flotation", "Расход вспенивателя (факт)", "ml/min", 0, 300, "medium"},
+	{"di301", "plant.flotation", "Плотность пульпы флотации", "%sol", 10, 45, "high"},
+	{"afi301", "plant.flotation", "Содержание Cu в питании", "%Cu", 0.1, 2.0, "high"},
+	{"afc301", "plant.flotation", "Содержание Cu в концентрате", "%Cu", 5, 30, "high"},
+	{"aft301", "plant.flotation", "Содержание Cu в хвостах", "%Cu", 0.01, 0.5, "critical"},
+	{"wi301", "plant.flotation", "Массовый расход концентрата", "t/h", 0, 10, "high"},
+	{"wi302", "plant.flotation", "Массовый расход хвостов", "t/h", 0, 200, "medium"},
+	{"fc301", "plant.flotation", "Задание насоса собирателя", "ml/min", 0, 500, "medium"},
+	{"fc302", "plant.flotation", "Задание насоса вспенивателя", "ml/min", 0, 300, "low"},
+	{"lc301", "plant.flotation", "Хвостовая задвижка флотомашины", "%", 0, 100, "critical"},
+	// Thickening
+	{"li401", "plant.thickening", "Уровень постели сгустителя", "m", 0, 8, "critical"},
+	{"di401", "plant.thickening", "Плотность сгущённого продукта", "%sol", 20, 70, "high"},
+	{"ei401", "plant.thickening", "Момент гребкового устройства", "%", 0, 100, "critical"},
+	{"fi401", "plant.thickening", "Доза флокулянта", "g/t", 0, 50, "medium"},
+	{"fc401", "plant.thickening", "Насос разгрузки сгустителя", "%", 0, 100, "high"},
+	// Filtration
+	{"pi501", "plant.filtration", "Вакуум фильтра", "kPa", 0, 80, "high"},
+	{"mi501", "plant.filtration", "Влажность кека", "%", 4, 25, "high"},
+	{"wi501", "plant.filtration", "Производительность по сухому кеку", "t/h", 0, 10, "medium"},
+	{"hi501", "plant.filtration", "Время цикла фильтра", "s", 10, 120, "low"},
+	// Derived metallurgical values (virtual, written by the calc service)
+	{"calc_epsilon", "plant.metallurgy", "Извлечение Cu", "%", 0, 100, "critical"},
+	{"calc_gamma", "plant.metallurgy", "Выход концентрата", "%", 0, 20, "high"},
+	{"calc_upgrade", "plant.metallurgy", "Коэффициент обогащения", "x", 0, 50, "medium"},
+	{"calc_pull", "plant.metallurgy", "Съём концентрата", "%", 0, 20, "medium"},
+	{"calc_balance_err", "plant.metallurgy", "Невязка массового баланса", "%", -10, 10, "high"},
+	{"calc_q_collector", "plant.metallurgy", "Удельный расход собирателя", "ml/t", 0, 500, "medium"},
+	{"calc_bond_kwt", "plant.metallurgy", "Удельная энергия измельчения (Бонд)", "kWh/t", 0, 30, "medium"},
+	{"calc_cl_pct", "plant.metallurgy", "Циркулирующая нагрузка", "%", 0, 600, "medium"},
+}
+
+// SeedRegistry inserts the flotation plant asset/tag catalogue when the tables
+// are empty (TZ §6/§7). Live plants populate the registry through the
+// change-controlled administrative workflow instead.
 func SeedRegistry(ctx context.Context, db *sql.DB) error {
 	var n int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM assets`).Scan(&n); err != nil {
@@ -27,41 +104,44 @@ func SeedRegistry(ctx context.Context, db *sql.DB) error {
 		return nil
 	}
 
-	assets := []Asset{
-		{ID: "plant-a.crushing", Name: "Crushing and grinding", Area: "crushing_grinding", Criticality: "high", Active: true},
-		{ID: "plant-a.flotation", Name: "Flotation", Area: "flotation", Criticality: "high", Active: true},
-		{ID: "plant-a.dewatering", Name: "Dewatering and drying", Area: "drying_dewatering", Criticality: "high", Active: true},
-		{ID: "plant-a.concentrate", Name: "Final concentrate", Area: "final_concentrate", Criticality: "medium", Active: true},
-	}
-	tags := []Tag{
-		{ID: "plant-a.crushing.particle_size", AssetID: "plant-a.crushing", Name: "Particle size", Unit: "mm", DataType: "number", SamplingIntervalSeconds: 1.0, Criticality: "high", Active: true},
-		{ID: "plant-a.crushing.pulp_density", AssetID: "plant-a.crushing", Name: "Pulp density", Unit: "g/cm3", DataType: "number", SamplingIntervalSeconds: 2.0, Criticality: "high", Active: true},
-		{ID: "plant-a.flotation.ph_level", AssetID: "plant-a.flotation", Name: "Pulp pH", Unit: "pH", DataType: "number", SamplingIntervalSeconds: 1.0, Criticality: "high", Active: true},
-		{ID: "plant-a.flotation.reagent_dosage", AssetID: "plant-a.flotation", Name: "Reagent dosage", Unit: "mL/min", DataType: "number", SamplingIntervalSeconds: 1.0, Criticality: "medium", Active: true},
-		{ID: "plant-a.dewatering.cake_moisture", AssetID: "plant-a.dewatering", Name: "Cake moisture", Unit: "%", DataType: "number", SamplingIntervalSeconds: 1.0, Criticality: "high", Active: true},
-		{ID: "plant-a.dewatering.dryer_temperature", AssetID: "plant-a.dewatering", Name: "Dryer temperature", Unit: "C", DataType: "number", SamplingIntervalSeconds: 1.0, Criticality: "high", Active: true},
-		{ID: "plant-a.concentrate.tonnage_weight", AssetID: "plant-a.concentrate", Name: "Concentrate throughput", Unit: "t/h", DataType: "number", SamplingIntervalSeconds: 1.0, Criticality: "medium", Active: true},
-		{ID: "plant-a.concentrate.final_moisture", AssetID: "plant-a.concentrate", Name: "Final moisture", Unit: "%", DataType: "number", SamplingIntervalSeconds: 1.0, Criticality: "high", Active: true},
-	}
-
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	for _, a := range assets {
+	for _, a := range seedAssets {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO assets (id, name, area, criticality, active) VALUES (?, ?, ?, ?, ?)`,
 			a.ID, a.Name, a.Area, a.Criticality, boolToInt(a.Active)); err != nil {
 			return fmt.Errorf("seed asset %s: %w", a.ID, err)
 		}
 	}
-	for _, t := range tags {
+	for _, spec := range seedTags {
+		direction := DirectionInput
+		if spec.metric == "hc101" || spec.metric == "fc201" || spec.metric == "fc301" ||
+			spec.metric == "fc302" || spec.metric == "lc301" || spec.metric == "fc401" ||
+			spec.metric == "hi501" {
+			direction = DirectionOutput
+		}
+		t := Tag{
+			ID:                      spec.asset + "." + spec.metric,
+			AssetID:                 spec.asset,
+			Name:                    spec.name,
+			Unit:                    spec.unit,
+			DataType:                "number",
+			SamplingIntervalSeconds: 1.0,
+			Criticality:             spec.crit,
+			Active:                  true,
+			Direction:               direction,
+		}
+		t.EngineeringMin, t.EngineeringMax = &spec.min, &spec.max
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO tags (id, asset_id, name, unit, data_type, sampling_interval_seconds, criticality, active)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			t.ID, t.AssetID, t.Name, t.Unit, t.DataType, t.SamplingIntervalSeconds, t.Criticality, boolToInt(t.Active)); err != nil {
+			`INSERT INTO tags (id, asset_id, name, unit, data_type, engineering_min, engineering_max,
+			  sampling_interval_seconds, criticality, active, direction)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			t.ID, t.AssetID, t.Name, t.Unit, t.DataType, t.EngineeringMin, t.EngineeringMax,
+			t.SamplingIntervalSeconds, t.Criticality, boolToInt(t.Active), t.Direction); err != nil {
 			return fmt.Errorf("seed tag %s: %w", t.ID, err)
 		}
 	}
@@ -89,10 +169,10 @@ func ListAssets(ctx context.Context, db *sql.DB) ([]Asset, error) {
 	return out, rows.Err()
 }
 
-// ListTags returns registered tags, optionally filtered by asset.
+// ListTags returns registered tags, optionally filtered by asset and/or direction.
 func ListTags(ctx context.Context, db *sql.DB, assetID string) ([]Tag, error) {
 	q := `SELECT id, asset_id, name, unit, data_type, engineering_min, engineering_max,
-		sampling_interval_seconds, criticality, active FROM tags`
+		sampling_interval_seconds, criticality, active, direction FROM tags`
 	var args []any
 	if assetID != "" {
 		q += ` WHERE asset_id = ?`
@@ -112,7 +192,7 @@ func ListTags(ctx context.Context, db *sql.DB, assetID string) ([]Tag, error) {
 		var active int
 		if err := rows.Scan(&t.ID, &t.AssetID, &t.Name, &t.Unit, &t.DataType,
 			&t.EngineeringMin, &t.EngineeringMax, &t.SamplingIntervalSeconds,
-			&t.Criticality, &active); err != nil {
+			&t.Criticality, &active, &t.Direction); err != nil {
 			return nil, err
 		}
 		t.Active = active == 1
@@ -127,10 +207,10 @@ func GetTag(ctx context.Context, db *sql.DB, id string) (*Tag, error) {
 	var active int
 	err := db.QueryRowContext(ctx,
 		`SELECT id, asset_id, name, unit, data_type, engineering_min, engineering_max,
-			sampling_interval_seconds, criticality, active FROM tags WHERE id = ?`, id).
+			sampling_interval_seconds, criticality, active, direction FROM tags WHERE id = ?`, id).
 		Scan(&t.ID, &t.AssetID, &t.Name, &t.Unit, &t.DataType,
 			&t.EngineeringMin, &t.EngineeringMax, &t.SamplingIntervalSeconds,
-			&t.Criticality, &active)
+			&t.Criticality, &active, &t.Direction)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -142,36 +222,29 @@ func GetTag(ctx context.Context, db *sql.DB, id string) (*Tag, error) {
 }
 
 // InsertReading stores a reading if its (gateway_id, message_id) is new.
-// It returns ErrDuplicate when the pair already exists.
+// It returns ErrDuplicate when the pair already exists. The single-statement
+// upsert keeps the write lock held briefly, which matters at the ingest rate
+// (an explicit BEGIN/SELECT/INSERT/COMMIT transaction serialises writers and
+// caused SQLITE_BUSY bursts under load).
 func InsertReading(ctx context.Context, db *sql.DB, r *Reading) error {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var one int
-	if err := tx.QueryRowContext(ctx,
-		`SELECT 1 FROM telemetry_readings WHERE gateway_id = ? AND message_id = ?`,
-		r.GatewayID, r.MessageID).Scan(&one); err == nil {
-		return ErrDuplicate
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-
-	if _, err := tx.ExecContext(ctx,
+	res, err := db.ExecContext(ctx,
 		`INSERT INTO telemetry_readings
 		 (id, message_id, gateway_id, source_sequence, observed_at, received_at, sent_at,
 		  asset_id, tag_id, value_number, value_bool, value_string, value_structured,
 		  unit, quality, profile_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (gateway_id, message_id) DO NOTHING`,
 		r.ID, r.MessageID, r.GatewayID, r.SourceSequence,
 		FormatUTC(r.ObservedAt), FormatUTC(r.ReceivedAt), nullTime(r.SentAt),
 		r.AssetID, r.TagID, r.ValueNumber, r.ValueBool, r.ValueString, r.ValueStructured,
-		r.Unit, r.Quality, r.ProfileID); err != nil {
+		r.Unit, r.Quality, r.ProfileID)
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrDuplicate
+	}
+	return nil
 }
 
 // ReadingFilter narrows a history query.
@@ -408,11 +481,11 @@ func CreateTag(ctx context.Context, db *sql.DB, t *Tag) error {
 	}
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO tags (id, asset_id, name, unit, data_type, engineering_min, engineering_max,
-		 sampling_interval_seconds, criticality, active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 sampling_interval_seconds, criticality, active, direction)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.AssetID, t.Name, t.Unit, t.DataType,
 		t.EngineeringMin, t.EngineeringMax, t.SamplingIntervalSeconds,
-		t.Criticality, boolToInt(t.Active)); err != nil {
+		t.Criticality, boolToInt(t.Active), t.Direction); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "unique") {
 			return fmt.Errorf("tag %q already exists", t.ID)
 		}
@@ -426,10 +499,10 @@ func UpdateTag(ctx context.Context, db *sql.DB, t *Tag) error {
 	res, err := db.ExecContext(ctx,
 		`UPDATE tags SET asset_id=?, name=?, unit=?, data_type=?,
 		 engineering_min=?, engineering_max=?, sampling_interval_seconds=?,
-		 criticality=?, active=? WHERE id=?`,
+		 criticality=?, active=?, direction=? WHERE id=?`,
 		t.AssetID, t.Name, t.Unit, t.DataType,
 		t.EngineeringMin, t.EngineeringMax, t.SamplingIntervalSeconds,
-		t.Criticality, boolToInt(t.Active), t.ID)
+		t.Criticality, boolToInt(t.Active), t.Direction, t.ID)
 	if err != nil {
 		return err
 	}

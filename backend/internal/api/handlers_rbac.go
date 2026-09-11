@@ -157,16 +157,38 @@ func (s *Server) ListAssignments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, as)
 }
 
-// WhoAmI exposes the resolved actor + permission lookup for the UI to render
-// available actions. It is open (only needs the X-User header).
+// WhoAmI exposes the authenticated subject with roles and resolved
+// permissions so the UI can render available actions. Requires a session.
 func (s *Server) WhoAmI(w http.ResponseWriter, r *http.Request) {
-	actor := actorFromRequest(r)
-	roles, _ := store.ListAssignments(r.Context(), s.db, actor.Subject)
-	out := map[string]any{
-		"subject": actor.Subject,
-		"role":    actor.Role,
-		"role_id": actor.Role,
-		"roles":   roles,
+	subject := subjectOf(r)
+	assignments, err := store.ListAssignments(r.Context(), s.db, subject)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "internal", err.Error())
+		return
 	}
-	writeJSON(w, http.StatusOK, out)
+	roles := make([]string, 0, len(assignments))
+	permissions := map[string]bool{}
+	for _, a := range assignments {
+		roles = append(roles, a.RoleID)
+		role, err := store.GetRole(r.Context(), s.db, a.RoleID)
+		if err != nil {
+			continue
+		}
+		for _, p := range role.Permissions {
+			permissions[p] = true
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"subject":     subject,
+		"roles":       roles,
+		"permissions": permissionList(permissions),
+	})
+}
+
+func permissionList(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

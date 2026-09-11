@@ -1,48 +1,49 @@
 // Package api implements the HTTP API (push ingestion, pull queries, registry,
-// health, WebSocket live fan-out) on top of the store and hub.
+// control, alarms, metallurgy, health, WebSocket live fan-out) on top of the
+// store, the alarm engine and the control manager.
 package api
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 
+	"cap/internal/alarms"
 	"cap/internal/config"
+	"cap/internal/controlsvc"
 	"cap/internal/hub"
 	"cap/internal/schema"
-	"cap/internal/simulator"
 	"cap/internal/store"
 )
 
 // Server wires handlers to shared dependencies.
 type Server struct {
-	db  *sql.DB
-	hub *hub.Hub
-	sim *simulator.Manager
-	cfg *config.Settings
-	now func() time.Time
-
-	areasMu sync.RWMutex
-	areas   map[string]string // asset_id -> area, lazily loaded for WS events
+	db     *sql.DB
+	hub    *hub.Hub
+	cfg    *config.Settings
+	alarms *alarms.Engine
+	loops  *controlsvc.Manager
+	now    func() time.Time
 }
 
-// New constructs a Server.
-func New(db *sql.DB, h *hub.Hub, sim *simulator.Manager, cfg *config.Settings) *Server {
-	return &Server{db: db, hub: h, sim: sim, cfg: cfg, now: time.Now}
+// New constructs a Server. alarms and loops may be nil in tests that do not
+// exercise those paths.
+func New(db *sql.DB, h *hub.Hub, cfg *config.Settings, eng *alarms.Engine, loops *controlsvc.Manager) *Server {
+	return &Server{db: db, hub: h, cfg: cfg, alarms: eng, loops: loops, now: time.Now}
 }
+
+// SetLoops attaches the control manager after construction (it needs the
+// server's ingest callback, so the wiring is two-phase in service.Run).
+func (s *Server) SetLoops(m *controlsvc.Manager) { s.loops = m }
 
 // httpError distinguishes whole-request failures (4xx/5xx) from per-item
 // ingest results. A nil *httpError means the item was processed normally.
@@ -117,9 +118,6 @@ func (s *Server) HealthCheck(w http.ResponseWriter, r *http.Request) {
 // Registry
 // ---------------------------------------------------------------------------
 
-// ListRoles has moved to handlers_rbac.go: the permission matrix is now
-// sourced from the roles table, not hard-coded here.
-
 // ListAssets returns the equipment hierarchy.
 func (s *Server) ListAssets(w http.ResponseWriter, r *http.Request) {
 	assets, err := store.ListAssets(r.Context(), s.db)
@@ -141,7 +139,7 @@ func (s *Server) ListTags(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// Ingestion (push)
+// Ingestion (push) — the single telemetry entry point of the platform
 // ---------------------------------------------------------------------------
 
 // IngestTelemetry handles a single canonical message.
@@ -202,6 +200,20 @@ func decodeBody(w http.ResponseWriter, r *http.Request, dst any) error {
 	dec.UseNumber()
 	if err := dec.Decode(dst); err != nil {
 		return errors.New("malformed JSON body")
+	}
+	return nil
+}
+
+// IngestCanonical is the exported single telemetry entry point. The
+// metallurgy calc service writes its virtual tags through this path so they
+// are validated, stored and broadcast exactly like field measurements.
+func (s *Server) IngestCanonical(ctx context.Context, t *schema.Telemetry) error {
+	result, httpErr := s.ingestOne(ctx, t)
+	if httpErr != nil {
+		return fmt.Errorf("%s: %s", httpErr.code, httpErr.message)
+	}
+	if result.Status != schema.StatusAccepted && result.Status != schema.StatusDuplicate {
+		return fmt.Errorf("ingest: %s", result.Status)
 	}
 	return nil
 }
@@ -273,100 +285,31 @@ func (s *Server) ingestOne(ctx context.Context, t *schema.Telemetry) (schema.Ing
 		return schema.IngestItemResult{}, &httpError{http.StatusInternalServerError, "internal", err.Error()}
 	}
 
-	s.publishLive(tag, reading)
+	// Fan out to dashboards, then to the alarm engine (TZ §11).
+	s.hub.Broadcast(s.liveEvent(tag, reading))
+	if s.alarms != nil {
+		s.alarms.Evaluate(ctx, tag, reading)
+	}
 	return schema.IngestItemResult{MessageID: t.MessageID, Status: schema.StatusAccepted}, nil
 }
 
-// publishLive fans an accepted reading out to dashboards: in-process hub
-// subscribers first, then every configured cross-service event sink (the live
-// service in split mode, see EVENT_SINKS).
-func (s *Server) publishLive(tag *store.Tag, r *store.Reading) {
-	ev := s.liveEvent(tag, r)
-	s.hub.Broadcast(ev)
-	s.forwardLiveEvent(ev)
-}
-
-var sinkClient = &http.Client{Timeout: 2 * time.Second}
-
-// forwardLiveEvent delivers the event to every sink, best effort: a slow or
-// down sink must never block or fail ingestion.
-func (s *Server) forwardLiveEvent(body []byte) {
-	for _, sink := range s.cfg.EventSinks {
-		go func(u string) {
-			resp, err := sinkClient.Post(u, "application/json", bytes.NewReader(body))
-			if err != nil {
-				log.Printf("event sink %s unreachable: %v", u, err)
-				return
-			}
-			resp.Body.Close()
-		}(sink)
-	}
-}
-
-// InternalEvent accepts a forwarded live event (from the ingest service in
-// split mode) and broadcasts it to this process's WebSocket subscribers.
-func (s *Server) InternalEvent(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "malformed", "event body too large or unreadable")
-		return
-	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		writeProblem(w, http.StatusBadRequest, "empty", "event body is required")
-		return
-	}
-	s.hub.Broadcast(body)
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "broadcast"})
-}
-
-// liveEvent exposes a stable dashboard event without leaking gateway internals.
+// liveEvent exposes the dashboard telemetry event (TZ §13).
 func (s *Server) liveEvent(tag *store.Tag, r *store.Reading) []byte {
 	ev := struct {
 		Type      string `json:"type"`
 		Timestamp string `json:"timestamp"`
 		AssetID   string `json:"asset_id"`
 		TagID     string `json:"tag_id"`
-		Stage     string `json:"stage"`
-		Metric    string `json:"metric"`
 		Value     any    `json:"value"`
 		Unit      string `json:"unit"`
 		Quality   string `json:"quality"`
-		Alert     bool   `json:"alert"`
-		Emergency bool   `json:"emergency"`
 	}{
 		Type: "telemetry", Timestamp: store.FormatUTC(r.ObservedAt),
 		AssetID: r.AssetID, TagID: r.TagID,
-		Stage: s.stageOf(r.AssetID), Metric: metricOf(r.TagID),
-		Value: r.Value(),
-		Unit:  r.Unit, Quality: r.Quality,
+		Value: r.Value(), Unit: r.Unit, Quality: r.Quality,
 	}
 	b, _ := json.Marshal(ev)
 	return b
-}
-
-// stageOf resolves the asset area, loading the registry once and caching it.
-func (s *Server) stageOf(assetID string) string {
-	s.areasMu.RLock()
-	area, ok := s.areas[assetID]
-	s.areasMu.RUnlock()
-	if ok {
-		return area
-	}
-
-	assets, err := store.ListAssets(context.Background(), s.db)
-	if err != nil {
-		return ""
-	}
-	s.areasMu.Lock()
-	if s.areas == nil {
-		s.areas = make(map[string]string, len(assets))
-	}
-	for _, a := range assets {
-		s.areas[a.ID] = a.Area
-	}
-	area = s.areas[assetID]
-	s.areasMu.Unlock()
-	return area
 }
 
 func reject(messageID, code, message string) schema.IngestItemResult {
@@ -502,77 +445,6 @@ func (s *Server) TelemetryAggregate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListAlerts returns persisted alert history.
-func (s *Server) ListAlerts(w http.ResponseWriter, r *http.Request) {
-	limit := s.cfg.DefaultLimit
-	if v := queryStr(r, "limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= s.cfg.MaxLimit {
-			limit = n
-		}
-	}
-	alerts, err := store.ListAlerts(r.Context(), s.db, queryStr(r, "stage"), queryStr(r, "metric"), limit)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, alerts)
-}
-
-// LatestAlert returns the most recent alert or JSON null.
-func (s *Server) LatestAlert(w http.ResponseWriter, r *http.Request) {
-	alerts, err := store.ListAlerts(r.Context(), s.db, "", "", 1)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
-	if len(alerts) == 0 {
-		writeJSON(w, http.StatusOK, nil)
-		return
-	}
-	writeJSON(w, http.StatusOK, alerts[0])
-}
-
-// ---------------------------------------------------------------------------
-// Simulator controls (development only)
-// ---------------------------------------------------------------------------
-
-// SimulatorStatus reports generator state.
-func (s *Server) SimulatorStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"running":         s.sim.IsRunning(),
-		"interval":        s.cfg.SimInterval.Seconds(),
-		"telemetry_count": s.sim.Count(),
-		"emergency":       s.sim.IsEmergency(),
-	})
-}
-
-// SimulatorStart launches the generator.
-func (s *Server) SimulatorStart(w http.ResponseWriter, r *http.Request) {
-	s.sim.Start(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"status": "running"})
-}
-
-// SimulatorStop halts the generator.
-func (s *Server) SimulatorStop(w http.ResponseWriter, r *http.Request) {
-	s.sim.Stop()
-	writeJSON(w, http.StatusOK, map[string]any{"status": "stopped"})
-}
-
-// SimulatorEmergency activates failure simulation.
-func (s *Server) SimulatorEmergency(w http.ResponseWriter, r *http.Request) {
-	s.sim.TriggerEmergency()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":           "emergency_active",
-		"duration_seconds": s.cfg.EmergencySec.Seconds(),
-	})
-}
-
-// SimulatorEmergencyStop deactivates failure simulation.
-func (s *Server) SimulatorEmergencyStop(w http.ResponseWriter, r *http.Request) {
-	s.sim.EndEmergency()
-	writeJSON(w, http.StatusOK, map[string]any{"status": "emergency_stopped"})
-}
-
 // ---------------------------------------------------------------------------
 // WebSocket
 // ---------------------------------------------------------------------------
@@ -583,7 +455,9 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(*http.Request) bool { return true },
 }
 
-// WebSocket subscribes a dashboard to live events and accepts emergency commands.
+// WebSocket subscribes a dashboard to live events. Clients receive telemetry,
+// alarm and loop_state events; there are no client→server commands (all
+// control actions go through the audited REST API).
 func (s *Server) WebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -602,19 +476,8 @@ func (s *Server) WebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		_, data, err := conn.ReadMessage()
-		if err != nil {
+		if _, _, err := conn.ReadMessage(); err != nil {
 			return
-		}
-		var cmd map[string]any
-		if json.Unmarshal(data, &cmd) != nil {
-			continue
-		}
-		switch cmd["type"] {
-		case "trigger_emergency":
-			s.sim.TriggerEmergency()
-		case "stop_emergency":
-			s.sim.EndEmergency()
 		}
 	}
 }
@@ -683,9 +546,4 @@ func parseResolution(s string) (time.Duration, error) {
 		return 24 * time.Hour, nil
 	}
 	return time.ParseDuration(s)
-}
-
-func metricOf(tagID string) string {
-	seg := strings.Split(tagID, ".")
-	return seg[len(seg)-1]
 }

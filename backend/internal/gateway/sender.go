@@ -20,6 +20,7 @@ import (
 type Sender struct {
 	client   *http.Client
 	server   string
+	token    string // device credential (X-Gateway-Token)
 	maxBatch int
 	interval time.Duration
 	backoff  time.Duration
@@ -31,15 +32,30 @@ type Sender struct {
 }
 
 // NewSender builds a batch deliverer.
-func NewSender(server string, maxBatch int, interval time.Duration) *Sender {
+func NewSender(server, token string, maxBatch int, interval time.Duration) *Sender {
 	return &Sender{
 		client:   &http.Client{Timeout: 10 * time.Second},
 		server:   server,
+		token:    token,
 		maxBatch: maxBatch,
 		interval: interval,
 		backoff:  1 * time.Second,
 		wake:     make(chan struct{}, 1),
 	}
+}
+
+// post sends an authenticated JSON request to the platform. Machine endpoints
+// accept the gateway token instead of a user session.
+func (s *Sender) post(ctx context.Context, path string, body []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.server+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.token != "" {
+		req.Header.Set("X-Gateway-Token", s.token)
+	}
+	return s.client.Do(req)
 }
 
 // Wake triggers an immediate flush attempt (used on reconnect).
@@ -98,7 +114,7 @@ func (s *Sender) flushOnce(ctx context.Context, buf *Buffer) int {
 	}
 
 	start := time.Now()
-	resp, err := s.client.Post(s.server+"/api/v1/ingest/telemetry:batch", "application/json", bytes.NewReader(raw))
+	resp, err := s.post(ctx, "/api/v1/ingest/telemetry:batch", raw)
 	if err != nil {
 		log.Printf("[gateway] server unreachable (%d in buffer), retry in %s", len(items), s.backoff)
 		s.backOff()

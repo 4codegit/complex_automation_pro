@@ -4,16 +4,14 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"cap/internal/store"
 )
 
-// actorFromRequest resolves the mutating user for the audit trail. Production
-// deployments inject the subject from OIDC/JWT; the demo phase trusts two
-// headers — X-User (subject) and X-Role (role). The "anonymous" fallback keeps
-// the existing curl-driven scripts working without changes.
+// actor resolves the mutating user for the audit trail. The subject always
+// comes from the authenticated session (TZ §12); the role label is resolved
+// from the primary assignment when present.
 type actor struct {
 	Subject string
 	Role    string
@@ -21,16 +19,20 @@ type actor struct {
 }
 
 func actorFromRequest(r *http.Request) actor {
-	subj := strings.TrimSpace(r.Header.Get("X-User"))
-	if subj == "" {
-		subj = "anonymous"
-	}
-	role := strings.TrimSpace(r.Header.Get("X-Role"))
 	src := r.Header.Get("X-Forwarded-For")
 	if src == "" {
-		src = strings.Split(r.RemoteAddr, ":")[0]
+		src = strings_SplitHost(r.RemoteAddr)
 	}
-	return actor{Subject: subj, Role: role, SrcIP: src}
+	return actor{Subject: subjectOf(r), SrcIP: src}
+}
+
+func strings_SplitHost(addr string) string {
+	for i := len(addr) - 1; i >= 0; i-- {
+		if addr[i] == ':' {
+			return addr[:i]
+		}
+	}
+	return addr
 }
 
 // audit records one immutable audit event for a mutation. It is best-effort:

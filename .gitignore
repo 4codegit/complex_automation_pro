@@ -36,6 +36,9 @@ logs/
 .run/
 *.tmp
 
+# Local working documents (personal notes, not for publication)
+docs-local/
+
 # Node
 node_modules/
 
