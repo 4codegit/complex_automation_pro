@@ -37,9 +37,14 @@ export const RegistryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
     void load();
     const timer = window.setInterval(load, 60_000);
+    // The mount-time fetch runs before login and 401s silently; reload as soon
+    // as the session appears so the synoptic never waits for the 60s tick.
+    const onSession = () => void load();
+    window.addEventListener('cap:registry-refresh', onSession);
     return () => {
       stopped = true;
       window.clearInterval(timer);
+      window.removeEventListener('cap:registry-refresh', onSession);
     };
   }, []);
 

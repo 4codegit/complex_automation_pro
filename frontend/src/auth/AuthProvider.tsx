@@ -53,6 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await api.post('/access/login', { username, password });
     const user = await api.get<WhoAmI>('/access/whoami');
     setState({ kind: 'logged_in', user });
+    window.dispatchEvent(new CustomEvent('cap:registry-refresh'));
   };
 
   const logout = async () => {
