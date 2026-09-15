@@ -14,7 +14,7 @@ import (
 // SchemaVersion is the canonical message contract version.
 const SchemaVersion = "1.0"
 
-// Quality values follow the contract in TECHNICAL_SPECIFICATION.md.
+// Quality values are part of the canonical message contract.
 const (
 	QualityGood        = "good"
 	QualityUncertain   = "uncertain"

@@ -22,7 +22,7 @@ import (
 // issues one read request per configured register spec and decodes the raw
 // bytes into canonical values.
 //
-// Read-only invariant (see ARCHITECTURE_DECISIONS.md ADR-001): this driver
+// Read-only invariant: this driver
 // performs function codes 1-4 (read) only. It exposes no write path (5, 6,
 // 15, 16) to the OT asset.
 //

@@ -43,4 +43,7 @@ docs-local/
 node_modules/
 
 # Python
-.venv/docs-build/
+.venv/
+
+# Generated QA renders (docs-build output previews)
+docs-build/qa/

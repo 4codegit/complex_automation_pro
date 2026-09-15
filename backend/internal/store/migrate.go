@@ -109,7 +109,7 @@ var migrations = []string{
 	// is supplied by the caller (header-based role assumption for the demo;
 	// OIDC/JWT attach the real subject in production). This is the minimum
 	// that lets a plant audit "who changed what, when", before RBAC hardens
-	// the accept side of those mutations. See ARCHITECTURE_DECISIONS.md ADR-002.
+	// the accept side of those mutations.
 	`CREATE TABLE IF NOT EXISTS audit_events (
 		id TEXT PRIMARY KEY,
 		occurred_at TEXT NOT NULL,

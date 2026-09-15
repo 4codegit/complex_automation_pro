@@ -1,7 +1,6 @@
 // Command edge runs the edge collector: local sensor polling, normalization
 // to the canonical contract, store-and-forward buffering (SQLite/WAL), batch
 // delivery with exponential backoff and a heartbeat pulse to the server.
-// See TZ_DEVELOPMENT.md section 8 (S3).
 package main
 
 import (

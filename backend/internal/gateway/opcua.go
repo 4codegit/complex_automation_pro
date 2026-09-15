@@ -21,7 +21,7 @@ import (
 // OPCUA_MODE=subscribe: the source switches the collect path to an
 // in-process notification buffer drained by Poll on each tick.
 //
-// Read-only invariant (see ARCHITECTURE_DECISIONS.md ADR-001): this driver
+// Read-only invariant: this driver
 // performs Read operations only. It exposes no write path to the OT asset.
 type opcuaSource struct {
 	cfg     *Config
@@ -318,7 +318,6 @@ func (s *opcuaSource) offlineAll(now time.Time, reason string) []schema.Telemetr
 }
 
 // mapQuality converts an OPC UA StatusCode to the canonical CAP quality.
-// See ARCHITECTURE_DECISIONS.md ADR-001 for the mapping table.
 func mapQuality(st ua.StatusCode) string {
 	switch {
 	case st == ua.StatusGood:

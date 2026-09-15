@@ -1,7 +1,7 @@
 // Package gateway implements the edge collector: local sensor polling,
 // normalization to the canonical contract, store-and-forward buffering in a
 // local SQLite file, resilient batch delivery with exponential backoff and a
-// heartbeat pulse to the server (TZ_DEVELOPMENT.md S3).
+// heartbeat pulse to the server.
 package gateway
 
 import (
