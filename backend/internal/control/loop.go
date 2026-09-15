@@ -30,6 +30,16 @@ type Config struct {
 	GainIndicatorTag string  // tag whose value drives gain adjustment
 	GainLow          float64 // indicator value that halves the gains
 	GainHigh         float64 // indicator value that doubles the gains
+
+	// pH regulation (patent claim 5).
+	LoopType            string  // "standard" or "ph"
+	PHDeadbandWarning   float64 // ±0.2 pH units → warning alarm
+	PHDeadbandCritical  float64 // ±0.5 pH units → critical alarm + force manual
+	SelfTuningEnabled   bool
+	TemperatureTag      string  // tag for pulp temperature
+	FlowTag             string  // tag for pulp flow rate
+	KpTempFactor        float64 // Kp adjustment per °C above 25°C
+	KiFlowFactor        float64 // Ki adjustment per 100 units above 100 flow
 }
 
 // ParseLoopSpec parses the CONTROL_LOOP key=value spec.

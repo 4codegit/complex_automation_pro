@@ -51,11 +51,23 @@ type ControlLoop struct {
 	GainLow          float64 `json:"gain_low"`
 	GainHigh         float64 `json:"gain_high"`
 	CurrentFactor    float64 `json:"current_factor,omitempty"` // live info only
+
+	// pH regulation (patent claim 5).
+	LoopType            string  `json:"loop_type"`
+	PHDeadbandWarning   float64 `json:"ph_deadband_warning"`
+	PHDeadbandCritical  float64 `json:"ph_deadband_critical"`
+	SelfTuningEnabled   bool    `json:"self_tuning_enabled"`
+	TemperatureTag      string  `json:"temperature_tag"`
+	FlowTag             string  `json:"flow_tag"`
+	KpTempFactor        float64 `json:"kp_temp_factor"`
+	KiFlowFactor        float64 `json:"ki_flow_factor"`
 }
 
 const loopSelect = `SELECT id, label, pv_tag, mv_tag, sp, sp_min, sp_max, out_min, out_max,
 	kp, ki, kd, deadband, slew, mode, state, output, integral, prev_error, updated_by, updated_at,
-	adaptive_enabled, gain_indicator_tag, gain_low, gain_high
+	adaptive_enabled, gain_indicator_tag, gain_low, gain_high,
+	loop_type, ph_deadband_warning, ph_deadband_critical, self_tuning_enabled,
+	temperature_tag, flow_tag, kp_temp_factor, ki_flow_factor
 	FROM control_loops`
 
 func scanLoop(row rowScanner) (*ControlLoop, error) {
@@ -63,22 +75,36 @@ func scanLoop(row rowScanner) (*ControlLoop, error) {
 	var prev sql.NullFloat64
 	var upd sql.NullString
 	var adaptiveEnabled int
+	var selfTuningEnabled int
 	if err := row.Scan(&l.ID, &l.Label, &l.PVTag, &l.MVTag, &l.SP, &l.SPMin, &l.SPMax,
 		&l.OutMin, &l.OutMax, &l.Kp, &l.Ki, &l.Kd, &l.Deadband, &l.Slew,
 		&l.Mode, &l.State, &l.Output, &l.Integral, &prev, &l.UpdatedBy, &upd,
-		&adaptiveEnabled, &l.GainIndicatorTag, &l.GainLow, &l.GainHigh); err != nil {
+		&adaptiveEnabled, &l.GainIndicatorTag, &l.GainLow, &l.GainHigh,
+		&l.LoopType, &l.PHDeadbandWarning, &l.PHDeadbandCritical, &selfTuningEnabled,
+		&l.TemperatureTag, &l.FlowTag, &l.KpTempFactor, &l.KiFlowFactor); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	l.AdaptiveEnabled = adaptiveEnabled != 0
+	l.SelfTuningEnabled = selfTuningEnabled != 0
 	if prev.Valid {
 		l.PrevError = &prev.Float64
 	}
 	if upd.Valid {
 		t := mustParse(upd.String)
 		l.UpdatedAt = &t
+	}
+	// Defaults for backward compatibility
+	if l.LoopType == "" {
+		l.LoopType = "standard"
+	}
+	if l.PHDeadbandWarning == 0 {
+		l.PHDeadbandWarning = 0.2
+	}
+	if l.PHDeadbandCritical == 0 {
+		l.PHDeadbandCritical = 0.5
 	}
 	return &l, nil
 }
@@ -215,7 +241,30 @@ func UpdateLoopAdaptive(ctx context.Context, db *sql.DB, id string, enabled bool
 	return nil
 }
 
-// SeedControlLoops inserts the three flotation plant loops (TZ §9) when the
+// UpdateLoopPHConfig updates the pH regulation configuration for a loop.
+func UpdateLoopPHConfig(ctx context.Context, db *sql.DB, id string,
+	deadbandWarning, deadbandCritical float64, selfTuningEnabled bool,
+	temperatureTag, flowTag string, kpTempFactor, kiFlowFactor float64, by string) error {
+	var st int
+	if selfTuningEnabled {
+		st = 1
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE control_loops SET ph_deadband_warning = ?, ph_deadband_critical = ?,
+		 self_tuning_enabled = ?, temperature_tag = ?, flow_tag = ?,
+		 kp_temp_factor = ?, ki_flow_factor = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
+		deadbandWarning, deadbandCritical, st, temperatureTag, flowTag,
+		kpTempFactor, kiFlowFactor, by, FormatUTC(time.Now().UTC()), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SeedControlLoops inserts the flotation plant loops (TZ §9) when the
 // table is empty. Tuning values are the starting point confirmed against the
 // process stand (acceptance: hold SP within the §17 bands).
 func SeedControlLoops(ctx context.Context, db *sql.DB) error {
@@ -229,23 +278,39 @@ func SeedControlLoops(ctx context.Context, db *sql.DB) error {
 	loops := []ControlLoop{
 		{ID: "lic301", Label: "Уровень пульпы флотомашины", PVTag: "plant.flotation.li301", MVTag: "plant.flotation.lc301",
 			SP: 500, SPMin: 450, SPMax: 650, OutMin: 0, OutMax: 100,
-			Kp: -0.06, Ki: -0.02, Kd: 0, Deadband: 2, Slew: 5, Mode: LoopModeManual, State: LoopStateOK},
+			Kp: -0.06, Ki: -0.02, Kd: 0, Deadband: 2, Slew: 5, Mode: LoopModeManual, State: LoopStateOK,
+			LoopType: "standard"},
 		{ID: "fic301", Label: "Удельный расход собирателя", PVTag: "plant.flotation.qi301", MVTag: "plant.flotation.fc301",
 			SP: 108, SPMin: 30, SPMax: 300, OutMin: 0, OutMax: 500,
-			Kp: -1.2, Ki: -0.4, Kd: 0, Deadband: 3, Slew: 5, Mode: LoopModeManual, State: LoopStateOK},
+			Kp: -1.2, Ki: -0.4, Kd: 0, Deadband: 3, Slew: 5, Mode: LoopModeManual, State: LoopStateOK,
+			LoopType: "standard"},
 		{ID: "dic401", Label: "Плотность сгущённого продукта", PVTag: "plant.thickening.di401", MVTag: "plant.thickening.fc401",
 			SP: 45, SPMin: 40, SPMax: 55, OutMin: 10, OutMax: 90,
-			Kp: -2.5, Ki: -0.8, Kd: 0, Deadband: 0.3, Slew: 5, Mode: LoopModeManual, State: LoopStateOK},
+			Kp: -2.5, Ki: -0.8, Kd: 0, Deadband: 0.3, Slew: 5, Mode: LoopModeManual, State: LoopStateOK,
+			LoopType: "standard"},
+		{ID: "phc301", Label: "pH пульпы флотации", PVTag: "plant.flotation.ph301", MVTag: "plant.flotation.acid_doser",
+			SP: 9.0, SPMin: 7.5, SPMax: 10.5, OutMin: 0, OutMax: 100,
+			Kp: -0.5, Ki: -0.15, Kd: 0, Deadband: 0.1, Slew: 2, Mode: LoopModeManual, State: LoopStateOK,
+			LoopType: "ph",
+			PHDeadbandWarning: 0.2, PHDeadbandCritical: 0.5,
+			SelfTuningEnabled: true,
+			TemperatureTag: "plant.flotation.ti301", FlowTag: "plant.flotation.fi301",
+			KpTempFactor: 0.02, KiFlowFactor: 0.01},
 	}
 	now := time.Now().UTC()
 	for _, l := range loops {
 		if _, err := db.ExecContext(ctx,
 			`INSERT INTO control_loops
 			 (id, label, pv_tag, mv_tag, sp, sp_min, sp_max, out_min, out_max,
-			  kp, ki, kd, deadband, slew, mode, state, output, updated_by, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			  kp, ki, kd, deadband, slew, mode, state, output, updated_by, updated_at,
+			  loop_type, ph_deadband_warning, ph_deadband_critical, self_tuning_enabled,
+			  temperature_tag, flow_tag, kp_temp_factor, ki_flow_factor)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			  ?, ?, ?, ?, ?, ?, ?, ?)`,
 			l.ID, l.Label, l.PVTag, l.MVTag, l.SP, l.SPMin, l.SPMax, l.OutMin, l.OutMax,
-			l.Kp, l.Ki, l.Kd, l.Deadband, l.Slew, l.Mode, l.State, l.Output, "seed", FormatUTC(now)); err != nil {
+			l.Kp, l.Ki, l.Kd, l.Deadband, l.Slew, l.Mode, l.State, l.Output, "seed", FormatUTC(now),
+			l.LoopType, l.PHDeadbandWarning, l.PHDeadbandCritical, boolToInt(l.SelfTuningEnabled),
+			l.TemperatureTag, l.FlowTag, l.KpTempFactor, l.KiFlowFactor); err != nil {
 			return err
 		}
 	}

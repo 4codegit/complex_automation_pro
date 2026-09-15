@@ -264,6 +264,16 @@ var migrations = []string{
 	`ALTER TABLE control_loops ADD COLUMN gain_indicator_tag TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE control_loops ADD COLUMN gain_low REAL NOT NULL DEFAULT 0`,
 	`ALTER TABLE control_loops ADD COLUMN gain_high REAL NOT NULL DEFAULT 100`,
+	// pH regulation (patent claim 5): dedicated loop with dual dead-bands,
+	// self-tuning, and bumpless transfer.
+	`ALTER TABLE control_loops ADD COLUMN loop_type TEXT NOT NULL DEFAULT 'standard'`,
+	`ALTER TABLE control_loops ADD COLUMN ph_deadband_warning REAL NOT NULL DEFAULT 0.2`,
+	`ALTER TABLE control_loops ADD COLUMN ph_deadband_critical REAL NOT NULL DEFAULT 0.5`,
+	`ALTER TABLE control_loops ADD COLUMN self_tuning_enabled INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE control_loops ADD COLUMN temperature_tag TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE control_loops ADD COLUMN flow_tag TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE control_loops ADD COLUMN kp_temp_factor REAL NOT NULL DEFAULT 0`,
+	`ALTER TABLE control_loops ADD COLUMN ki_flow_factor REAL NOT NULL DEFAULT 0`,
 }
 
 // Migrate applies pending migrations in a transaction.

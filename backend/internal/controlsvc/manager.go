@@ -90,6 +90,13 @@ func (m *Manager) tickLoop(ctx context.Context, l *store.ControlLoop, now time.T
 		}
 	}
 
+	// pH regulation (patent claim 5): dedicated logic with dual dead-bands
+	// and self-tuning based on temperature and flow.
+	if l.LoopType == "ph" {
+		m.tickPHLoop(ctx, l, r, now)
+		return
+	}
+
 	cfg := control.Config{
 		PVTag: l.PVTag, OutTag: l.MVTag,
 		Kp: l.Kp, Ki: l.Ki, Kd: l.Kd,
@@ -129,6 +136,90 @@ func (m *Manager) tickLoop(ctx context.Context, l *store.ControlLoop, now time.T
 	m.publishWithPv(*l, r.ValueNumber)
 }
 
+// tickPHLoop handles the pH regulation loop (patent claim 5).
+func (m *Manager) tickPHLoop(ctx context.Context, l *store.ControlLoop, r *store.Reading, now time.Time) {
+	cfg := control.Config{
+		PVTag: l.PVTag, OutTag: l.MVTag,
+		Kp: l.Kp, Ki: l.Ki, Kd: l.Kd,
+		Deadband: l.Deadband, Slew: l.Slew,
+		Interval: time.Second,
+	}
+
+	// Self-tuning: adjust Kp/Ki based on temperature and flow
+	if l.SelfTuningEnabled {
+		var temp, flow float64
+		if l.TemperatureTag != "" {
+			if tr, err := store.LatestGoodNumericReading(ctx, m.db, l.TemperatureTag); err == nil && tr.ValueNumber != nil {
+				temp = *tr.ValueNumber
+			}
+		}
+		if l.FlowTag != "" {
+			if fr, err := store.LatestGoodNumericReading(ctx, m.db, l.FlowTag); err == nil && fr.ValueNumber != nil {
+				flow = *fr.ValueNumber
+			}
+		}
+		phCfg := control.PHConfig{
+			SelfTuningEnabled: l.SelfTuningEnabled,
+			TemperatureTag:    l.TemperatureTag,
+			FlowTag:           l.FlowTag,
+			KpTempFactor:      l.KpTempFactor,
+			KiFlowFactor:      l.KiFlowFactor,
+		}
+		cfg = control.PHSelfTune(cfg, temp, flow, phCfg)
+	}
+
+	prev := control.State{Integral: l.Integral, Output: percentOf(*l, l.Output), Status: control.StatusAuto, HasPrev: l.PrevError != nil}
+	if l.PrevError != nil {
+		prev.PrevErr = *l.PrevError
+	}
+
+	bands := control.PHDeadBands{
+		Warning:  l.PHDeadbandWarning,
+		Critical: l.PHDeadbandCritical,
+	}
+	next, phState := control.PHStep(cfg, l.SP, *r.ValueNumber, prev, 1.0, bands)
+
+	// Handle pH alarm states
+	switch phState {
+	case control.PHStateCritical:
+		// Force manual, output frozen, raise critical alarm
+		_ = store.SaveLoopRuntime(ctx, m.db, l.ID, l.Output, store.LoopModeManual, store.LoopStateWatchdog, next.Integral, next.PrevErr)
+		if m.alarms != nil {
+			m.alarms.RaiseOperational(ctx, "loop:"+l.ID, "ph_critical", "critical",
+				"pH критическое отклонение (>0.5), принудительный ручной режим", now)
+		}
+		updated, _ := store.GetLoop(ctx, m.db, l.ID)
+		if updated != nil {
+			m.publishWithPv(*updated, r.ValueNumber)
+		}
+		return
+
+	case control.PHStateWarning:
+		// Raise warning alarm, continue auto
+		if m.alarms != nil {
+			m.alarms.RaiseOperational(ctx, "loop:"+l.ID, "ph_warning", "high",
+				"pH отклонение >0.2 от уставки", now)
+		}
+		// Fall through to normal save
+
+	case control.PHStateOK:
+		// Clear previous pH alarms
+		if m.alarms != nil {
+			m.alarms.ClearOperational(ctx, "loop:"+l.ID, now)
+		}
+	}
+
+	output := engineeringOf(*l, next.Output)
+
+	if err := store.SaveLoopRuntime(ctx, m.db, l.ID, output, store.LoopModeAuto, store.LoopStateOK, next.Integral, next.PrevErr); err != nil {
+		log.Printf("[control] save %s: %v", l.ID, err)
+		return
+	}
+	l.Output = output
+	l.State = store.LoopStateOK
+	m.publishWithPv(*l, r.ValueNumber)
+}
+
 // publish broadcasts one loop_state event (TZ §13).
 func (m *Manager) publish(l store.ControlLoop) {
 	m.publishWithPv(l, nil)
@@ -142,6 +233,7 @@ func (m *Manager) publishWithPv(l store.ControlLoop, pv *float64) {
 		"mode": l.Mode, "state": l.State,
 		"sp": l.SP, "out": l.Output,
 		"adaptive_enabled": l.AdaptiveEnabled,
+		"loop_type": l.LoopType,
 	}
 	if pv != nil {
 		ev["pv"] = *pv
@@ -149,6 +241,13 @@ func (m *Manager) publishWithPv(l store.ControlLoop, pv *float64) {
 	if l.AdaptiveEnabled {
 		ev["gain_factor"] = l.CurrentFactor
 		ev["gain_indicator_tag"] = l.GainIndicatorTag
+	}
+	if l.LoopType == "ph" {
+		ev["ph_deadband_warning"] = l.PHDeadbandWarning
+		ev["ph_deadband_critical"] = l.PHDeadbandCritical
+		ev["self_tuning_enabled"] = l.SelfTuningEnabled
+		ev["temperature_tag"] = l.TemperatureTag
+		ev["flow_tag"] = l.FlowTag
 	}
 	m.broadcast(ev)
 }

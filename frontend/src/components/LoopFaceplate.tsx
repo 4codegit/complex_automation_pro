@@ -26,6 +26,15 @@ const LoopFaceplate: React.FC<LoopFaceplateProps> = ({ loopId, compact = false }
     gain_low: 50,
     gain_high: 200,
   });
+  const [showPH, setShowPH] = useState(false);
+  const [phDraft, setPHDraft] = useState({
+    warning: 0.2,
+    critical: 0.5,
+    kpTemp: 0.02,
+    kiFlow: 0.01,
+    tempTag: '',
+    flowTag: '',
+  });
   const wsLoops = useLoopStates();
 
   const load = useCallback(async () => {
@@ -53,6 +62,10 @@ const LoopFaceplate: React.FC<LoopFaceplateProps> = ({ loopId, compact = false }
   const sp = ws?.sp ?? loop?.sp ?? 0;
   const adaptiveEnabled = ws?.adaptive_enabled ?? loop?.adaptive_enabled ?? false;
   const gainFactor = ws?.gain_factor ?? loop?.current_factor;
+  const isPH = loop?.loop_type === 'ph';
+  const phWarning = ws?.ph_deadband_warning ?? loop?.ph_deadband_warning ?? 0.2;
+  const phCritical = ws?.ph_deadband_critical ?? loop?.ph_deadband_critical ?? 0.5;
+  const selfTuning = ws?.self_tuning_enabled ?? loop?.self_tuning_enabled ?? false;
 
   if (!loop) {
     return <div className="rounded border border-line bg-panel p-3 text-[12px] text-dim">Загрузка контура {loopId}…</div>;
@@ -272,6 +285,148 @@ const LoopFaceplate: React.FC<LoopFaceplateProps> = ({ loopId, compact = false }
                   Отключить adaptive
                 </button>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* pH regulation panel (patent claim 5) */}
+      {!compact && isPH && (
+        <div className="mt-2 border-t border-line pt-2">
+          <button
+            onClick={() => setShowPH(!showPH)}
+            className="text-[10px] text-dim hover:text-mute transition-colors"
+          >
+            {showPH ? '▼ Скрыть' : '▶'} pH-регуляция (Claim 5)
+          </button>
+          {showPH && (
+            <div className="mt-2 space-y-2 rounded bg-panel2/50 p-2.5">
+              {/* Dead-band indicators */}
+              <div className="flex items-center gap-3 text-[10.5px]">
+                <span className="text-dim">Dead-bands:</span>
+                <span className="rounded bg-warn/20 px-1.5 py-0.5 text-warn font-mono text-[9px]">
+                  ±{phWarning.toFixed(1)} предупреждение
+                </span>
+                <span className="rounded bg-alarm/20 px-1.5 py-0.5 text-alarm font-mono text-[9px]">
+                  ±{phCritical.toFixed(1)} критическое
+                </span>
+              </div>
+              {pv !== undefined && (
+                <div className="flex items-center gap-3 text-[10.5px]">
+                  <span className="text-dim">Отклонение от SP:</span>
+                  <span className={`font-mono font-semibold ${
+                    Math.abs(pv - sp) > phCritical ? 'text-alarm' :
+                    Math.abs(pv - sp) > phWarning ? 'text-warn' : 'text-ok'
+                  }`}>
+                    {Math.abs(pv - sp).toFixed(2)} pH
+                  </span>
+                </div>
+              )}
+
+              {/* Self-tuning */}
+              <label className="flex items-center gap-2 text-[11px]">
+                <input
+                  type="checkbox"
+                  checked={selfTuning}
+                  onChange={(e) => void write('ph', {
+                    deadband_warning: phWarning,
+                    deadband_critical: phCritical,
+                    self_tuning_enabled: e.target.checked,
+                    temperature_tag: loop?.temperature_tag || '',
+                    flow_tag: loop?.flow_tag || '',
+                    kp_temp_factor: loop?.kp_temp_factor ?? 0.02,
+                    ki_flow_factor: loop?.ki_flow_factor ?? 0.01,
+                  })}
+                  className="h-3.5 w-3.5 rounded accent-accent"
+                />
+                <span className="text-ink">Self-tuning Kp/Ki (температура + расход)</span>
+              </label>
+              {selfTuning && (
+                <div className="grid grid-cols-2 gap-2 text-[9.5px] text-dim">
+                  <span>Тег температуры: <code className="font-mono">{loop?.temperature_tag || '—'}</code></span>
+                  <span>Тег расхода: <code className="font-mono">{loop?.flow_tag || '—'}</code></span>
+                  <span>Kp/°C: <code className="font-mono">{loop?.kp_temp_factor ?? 0.02}</code></span>
+                  <span>Ki/flow: <code className="font-mono">{loop?.ki_flow_factor ?? 0.01}</code></span>
+                </div>
+              )}
+
+              {/* Config form */}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[9.5px] text-dim">Warning ±pH</label>
+                  <input
+                    type="number" step="0.1"
+                    value={phWarning}
+                    onChange={(e) => setPHDraft({ ...phDraft, warning: parseFloat(e.target.value) || 0.2 })}
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] text-dim">Critical ±pH</label>
+                  <input
+                    type="number" step="0.1"
+                    value={phCritical}
+                    onChange={(e) => setPHDraft({ ...phDraft, critical: parseFloat(e.target.value) || 0.5 })}
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] text-dim">Kp/°C</label>
+                  <input
+                    type="number" step="0.001"
+                    value={loop?.kp_temp_factor ?? 0.02}
+                    onChange={(e) => setPHDraft({ ...phDraft, kpTemp: parseFloat(e.target.value) || 0.02 })}
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[9.5px] text-dim">Ki/flow</label>
+                  <input
+                    type="number" step="0.001"
+                    value={loop?.ki_flow_factor ?? 0.01}
+                    onChange={(e) => setPHDraft({ ...phDraft, kiFlow: parseFloat(e.target.value) || 0.01 })}
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] text-dim">Тег температуры</label>
+                  <input
+                    value={loop?.temperature_tag || ''}
+                    onChange={(e) => setPHDraft({ ...phDraft, tempTag: e.target.value })}
+                    placeholder="plant.flotation.ti301"
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] text-dim">Тег расхода</label>
+                  <input
+                    value={loop?.flow_tag || ''}
+                    onChange={(e) => setPHDraft({ ...phDraft, flowTag: e.target.value })}
+                    placeholder="plant.flotation.fi301"
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+              </div>
+              <p className="text-[9px] leading-relaxed text-dim">
+                Warning ±0.2 pH → alarm. Critical ±0.5 pH → force manual + freeze output.
+                Self-tuning: Kp масштабируется с температурой, Ki — с расходом пульпы.
+              </p>
+              <button
+                onClick={() => void write('ph', {
+                  deadband_warning: phDraft.warning,
+                  deadband_critical: phDraft.critical,
+                  self_tuning_enabled: selfTuning,
+                  temperature_tag: phDraft.tempTag,
+                  flow_tag: phDraft.flowTag,
+                  kp_temp_factor: phDraft.kpTemp,
+                  ki_flow_factor: phDraft.kiFlow,
+                })}
+                className="h-6 rounded bg-accent px-2 text-[10px] font-semibold text-white hover:opacity-90"
+              >
+                Сохранить конфигурацию pH
+              </button>
             </div>
           )}
         </div>

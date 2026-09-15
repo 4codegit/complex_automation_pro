@@ -87,6 +87,13 @@ export interface LoopStateEvent {
   adaptive_enabled?: boolean;
   gain_factor?: number;
   gain_indicator_tag?: string;
+  // pH regulation (patent claim 5).
+  loop_type?: string;
+  ph_deadband_warning?: number;
+  ph_deadband_critical?: number;
+  self_tuning_enabled?: boolean;
+  temperature_tag?: string;
+  flow_tag?: string;
 }
 
 export type WsEvent =
@@ -163,6 +170,15 @@ export interface ControlLoop {
   gain_low?: number;
   gain_high?: number;
   current_factor?: number;
+  // pH regulation (patent claim 5).
+  loop_type?: string;
+  ph_deadband_warning?: number;
+  ph_deadband_critical?: number;
+  self_tuning_enabled?: boolean;
+  temperature_tag?: string;
+  flow_tag?: string;
+  kp_temp_factor?: number;
+  ki_flow_factor?: number;
 }
 
 export interface ActuatorOutput {

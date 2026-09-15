@@ -27,6 +27,14 @@ func (s *Server) ControlStatus(w http.ResponseWriter, r *http.Request) {
 			"adaptive_enabled": l.AdaptiveEnabled,
 			"gain_indicator_tag": l.GainIndicatorTag,
 			"gain_low": l.GainLow, "gain_high": l.GainHigh,
+			"loop_type": l.LoopType,
+			"ph_deadband_warning": l.PHDeadbandWarning,
+			"ph_deadband_critical": l.PHDeadbandCritical,
+			"self_tuning_enabled": l.SelfTuningEnabled,
+			"temperature_tag": l.TemperatureTag,
+			"flow_tag": l.FlowTag,
+			"kp_temp_factor": l.KpTempFactor,
+			"ki_flow_factor": l.KiFlowFactor,
 		}
 		if pv, err := store.LatestGoodNumericReading(r.Context(), s.db, l.PVTag); err == nil && pv.ValueNumber != nil {
 			item["pv"] = *pv.ValueNumber
@@ -212,6 +220,67 @@ func (s *Server) SetLoopAdaptive(w http.ResponseWriter, r *http.Request) {
 	s.writeLoop(w, r, id)
 }
 
+// SetLoopPHConfig: PUT /api/v1/control/loops/{id}/ph — configure pH regulation
+// (patent claim 5).
+func (s *Server) SetLoopPHConfig(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	loop, err := store.GetLoop(r.Context(), s.db, id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeProblem(w, http.StatusNotFound, "not_found", "loop not found")
+		return
+	}
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if loop.LoopType != "ph" {
+		writeProblem(w, http.StatusUnprocessableEntity, "not_ph_loop",
+			"loop is not a pH regulation loop")
+		return
+	}
+
+	var req struct {
+		DeadbandWarning  float64 `json:"deadband_warning"`
+		DeadbandCritical float64 `json:"deadband_critical"`
+		SelfTuning       bool    `json:"self_tuning_enabled"`
+		TemperatureTag   string  `json:"temperature_tag"`
+		FlowTag          string  `json:"flow_tag"`
+		KpTempFactor     float64 `json:"kp_temp_factor"`
+		KiFlowFactor     float64 `json:"ki_flow_factor"`
+		Confirm          bool    `json:"confirm"`
+	}
+	if err := decodeBody(w, r, &req); err != nil {
+		writeProblem(w, http.StatusBadRequest, "malformed", err.Error())
+		return
+	}
+	if !req.Confirm {
+		writeProblem(w, http.StatusUnprocessableEntity, "confirm_required", errConfirm.Error())
+		return
+	}
+	if req.DeadbandCritical <= req.DeadbandWarning {
+		writeProblem(w, http.StatusUnprocessableEntity, "invalid_deadbands",
+			"deadband_critical must be greater than deadband_warning")
+		return
+	}
+	if req.DeadbandWarning <= 0 || req.DeadbandCritical <= 0 {
+		writeProblem(w, http.StatusUnprocessableEntity, "invalid_deadbands",
+			"deadbands must be positive")
+		return
+	}
+
+	by := subjectOf(r)
+	if err := store.UpdateLoopPHConfig(r.Context(), s.db, id,
+		req.DeadbandWarning, req.DeadbandCritical, req.SelfTuning,
+		req.TemperatureTag, req.FlowTag, req.KpTempFactor, req.KiFlowFactor, by); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	s.audit(r, "control.ph_config", "loop", id,
+		fmt.Sprintf("ph_config: warning=%.2f critical=%.2f self_tune=%v temp=%s flow=%s",
+			req.DeadbandWarning, req.DeadbandCritical, req.SelfTuning, req.TemperatureTag, req.FlowTag))
+	s.writeLoop(w, r, id)
+}
+
 func (s *Server) writeLoop(w http.ResponseWriter, r *http.Request, id string) {
 	loop, err := store.GetLoop(r.Context(), s.db, id)
 	if err != nil {
@@ -226,6 +295,14 @@ func (s *Server) writeLoop(w http.ResponseWriter, r *http.Request, id string) {
 		"adaptive_enabled": loop.AdaptiveEnabled,
 		"gain_indicator_tag": loop.GainIndicatorTag,
 		"gain_low": loop.GainLow, "gain_high": loop.GainHigh,
+		"loop_type": loop.LoopType,
+		"ph_deadband_warning": loop.PHDeadbandWarning,
+		"ph_deadband_critical": loop.PHDeadbandCritical,
+		"self_tuning_enabled": loop.SelfTuningEnabled,
+		"temperature_tag": loop.TemperatureTag,
+		"flow_tag": loop.FlowTag,
+		"kp_temp_factor": loop.KpTempFactor,
+		"ki_flow_factor": loop.KiFlowFactor,
 	}
 	if pv, err := store.LatestGoodNumericReading(r.Context(), s.db, loop.PVTag); err == nil && pv.ValueNumber != nil {
 		item["pv"] = *pv.ValueNumber
