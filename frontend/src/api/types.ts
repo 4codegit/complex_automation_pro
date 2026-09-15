@@ -84,6 +84,9 @@ export interface LoopStateEvent {
   sp: number;
   out: number;
   timestamp: string;
+  adaptive_enabled?: boolean;
+  gain_factor?: number;
+  gain_indicator_tag?: string;
 }
 
 export type WsEvent =
@@ -154,6 +157,12 @@ export interface ControlLoop {
   out: number;
   pv?: number;
   pv_at?: string;
+  // Adaptive gain scheduling (patent claim 4).
+  adaptive_enabled?: boolean;
+  gain_indicator_tag?: string;
+  gain_low?: number;
+  gain_high?: number;
+  current_factor?: number;
 }
 
 export interface ActuatorOutput {

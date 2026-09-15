@@ -84,6 +84,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PUT /api/v1/control/loops/{id}/setpoint", s.SetLoopSetpoint)
 	mux.HandleFunc("PUT /api/v1/control/loops/{id}/mode", s.SetLoopMode)
 	mux.HandleFunc("PUT /api/v1/control/loops/{id}/output", s.SetLoopOutput)
+	mux.HandleFunc("PUT /api/v1/control/loops/{id}/adaptive", s.SetLoopAdaptive)
 	mux.HandleFunc("GET /api/v1/control/output", s.ControlOutput)
 	mux.HandleFunc("PUT /api/v1/actuators/{tag_id}", s.WriteActuator)
 

@@ -24,6 +24,9 @@ func (s *Server) ControlStatus(w http.ResponseWriter, r *http.Request) {
 			"out_min": l.OutMin, "out_max": l.OutMax,
 			"kp": l.Kp, "ki": l.Ki, "kd": l.Kd,
 			"mode": l.Mode, "state": l.State, "out": l.Output,
+			"adaptive_enabled": l.AdaptiveEnabled,
+			"gain_indicator_tag": l.GainIndicatorTag,
+			"gain_low": l.GainLow, "gain_high": l.GainHigh,
 		}
 		if pv, err := store.LatestGoodNumericReading(r.Context(), s.db, l.PVTag); err == nil && pv.ValueNumber != nil {
 			item["pv"] = *pv.ValueNumber
@@ -159,6 +162,56 @@ func (s *Server) SetLoopOutput(w http.ResponseWriter, r *http.Request) {
 	s.writeLoop(w, r, id)
 }
 
+// SetLoopAdaptive: PUT /api/v1/control/loops/{id}/adaptive — enable/disable
+// adaptive gain scheduling (patent claim 4).
+func (s *Server) SetLoopAdaptive(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	loop, err := store.GetLoop(r.Context(), s.db, id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeProblem(w, http.StatusNotFound, "not_found", "loop not found")
+		return
+	}
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	_ = loop
+
+	var req struct {
+		AdaptiveEnabled bool    `json:"adaptive_enabled"`
+		IndicatorTag    string  `json:"gain_indicator_tag"`
+		GainLow         float64 `json:"gain_low"`
+		GainHigh        float64 `json:"gain_high"`
+		Confirm         bool    `json:"confirm"`
+	}
+	if err := decodeBody(w, r, &req); err != nil {
+		writeProblem(w, http.StatusBadRequest, "malformed", err.Error())
+		return
+	}
+	if !req.Confirm {
+		writeProblem(w, http.StatusUnprocessableEntity, "confirm_required", errConfirm.Error())
+		return
+	}
+	if req.AdaptiveEnabled && req.IndicatorTag == "" {
+		writeProblem(w, http.StatusUnprocessableEntity, "missing_indicator",
+			"gain_indicator_tag is required when adaptive is enabled")
+		return
+	}
+	if req.GainHigh <= req.GainLow {
+		writeProblem(w, http.StatusUnprocessableEntity, "invalid_range",
+			"gain_high must be greater than gain_low")
+		return
+	}
+	by := subjectOf(r)
+	if err := store.UpdateLoopAdaptive(r.Context(), s.db, id, req.AdaptiveEnabled, req.IndicatorTag, req.GainLow, req.GainHigh, by); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	s.audit(r, "control.adaptive", "loop", id,
+		fmt.Sprintf("adaptive=%v indicator=%s range=[%.3g,%.3g]", req.AdaptiveEnabled, req.IndicatorTag, req.GainLow, req.GainHigh))
+	s.writeLoop(w, r, id)
+}
+
 func (s *Server) writeLoop(w http.ResponseWriter, r *http.Request, id string) {
 	loop, err := store.GetLoop(r.Context(), s.db, id)
 	if err != nil {
@@ -170,6 +223,9 @@ func (s *Server) writeLoop(w http.ResponseWriter, r *http.Request, id string) {
 		"sp": loop.SP, "sp_min": loop.SPMin, "sp_max": loop.SPMax,
 		"out_min": loop.OutMin, "out_max": loop.OutMax,
 		"mode": loop.Mode, "state": loop.State, "out": loop.Output,
+		"adaptive_enabled": loop.AdaptiveEnabled,
+		"gain_indicator_tag": loop.GainIndicatorTag,
+		"gain_low": loop.GainLow, "gain_high": loop.GainHigh,
 	}
 	if pv, err := store.LatestGoodNumericReading(r.Context(), s.db, loop.PVTag); err == nil && pv.ValueNumber != nil {
 		item["pv"] = *pv.ValueNumber

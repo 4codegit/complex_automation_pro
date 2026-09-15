@@ -24,6 +24,12 @@ type Config struct {
 	Deadband float64
 	Slew     float64 // max output change per tick, percent points
 	Interval time.Duration
+
+	// Adaptive gain scheduling (patent claim 4).
+	AdaptiveEnabled  bool
+	GainIndicatorTag string  // tag whose value drives gain adjustment
+	GainLow          float64 // indicator value that halves the gains
+	GainHigh         float64 // indicator value that doubles the gains
 }
 
 // ParseLoopSpec parses the CONTROL_LOOP key=value spec.

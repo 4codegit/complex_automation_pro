@@ -258,6 +258,12 @@ var migrations = []string{
 	`UPDATE roles SET permissions = permissions || ',scenario_run'
 	 WHERE id IN ('platform_admin', 'operator')
 	 AND permissions NOT LIKE '%scenario_run%'`,
+	// Adaptive gain scheduling (patent claim 4): per-loop indicator-driven
+	// adjustment of Kp/Ki coefficients without re-initialisation.
+	`ALTER TABLE control_loops ADD COLUMN adaptive_enabled INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE control_loops ADD COLUMN gain_indicator_tag TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE control_loops ADD COLUMN gain_low REAL NOT NULL DEFAULT 0`,
+	`ALTER TABLE control_loops ADD COLUMN gain_high REAL NOT NULL DEFAULT 100`,
 }
 
 // Migrate applies pending migrations in a transaction.

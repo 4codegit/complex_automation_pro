@@ -20,6 +20,12 @@ const LoopFaceplate: React.FC<LoopFaceplateProps> = ({ loopId, compact = false }
   const [error, setError] = useState<string | null>(null);
   const [confirmSp, setConfirmSp] = useState(false);
   const [spDraft, setSpDraft] = useState('');
+  const [showAdaptive, setShowAdaptive] = useState(false);
+  const [adaptiveDraft, setAdaptiveDraft] = useState({
+    indicator_tag: '',
+    gain_low: 50,
+    gain_high: 200,
+  });
   const wsLoops = useLoopStates();
 
   const load = useCallback(async () => {
@@ -45,6 +51,8 @@ const LoopFaceplate: React.FC<LoopFaceplateProps> = ({ loopId, compact = false }
   const state = ws?.state ?? loop?.state ?? 'ok';
   const out = ws?.out ?? loop?.out ?? 0;
   const sp = ws?.sp ?? loop?.sp ?? 0;
+  const adaptiveEnabled = ws?.adaptive_enabled ?? loop?.adaptive_enabled ?? false;
+  const gainFactor = ws?.gain_factor ?? loop?.current_factor;
 
   if (!loop) {
     return <div className="rounded border border-line bg-panel p-3 text-[12px] text-dim">Загрузка контура {loopId}…</div>;
@@ -85,6 +93,11 @@ const LoopFaceplate: React.FC<LoopFaceplateProps> = ({ loopId, compact = false }
           <p className="font-mono text-[10px] text-dim">{loop.id} · PV {loop.pv_tag} → MV {loop.mv_tag}</p>
         </div>
         <div className="flex items-center gap-1.5">
+          {adaptiveEnabled && (
+            <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-accent ring-1 ring-accent/40" title="Адаптивная настройка Kp/Ki включена">
+              ADAPT{gainFactor != null ? ` ×${gainFactor.toFixed(2)}` : ''}
+            </span>
+          )}
           <span className={`text-[11px] font-semibold ${stateLabel[state]?.cls ?? 'text-dim'}`}>
             {stateLabel[state]?.text ?? state}
           </span>
@@ -180,6 +193,89 @@ const LoopFaceplate: React.FC<LoopFaceplateProps> = ({ loopId, compact = false }
       </div>
 
       {error && <p className="mt-2 text-[11px] text-alarm">{error}</p>}
+
+      {/* Adaptive gain scheduling toggle */}
+      {!compact && (
+        <div className="mt-2 border-t border-line pt-2">
+          <button
+            onClick={() => setShowAdaptive(!showAdaptive)}
+            className="text-[10px] text-dim hover:text-mute transition-colors"
+          >
+            {showAdaptive ? '▼ Скрыть' : '▶'} Адаптивная настройка (gain scheduling)
+          </button>
+          {showAdaptive && (
+            <div className="mt-2 space-y-2 rounded bg-panel2/50 p-2.5">
+              <label className="flex items-center gap-2 text-[11px]">
+                <input
+                  type="checkbox"
+                  checked={adaptiveEnabled}
+                  onChange={(e) => void write('adaptive', {
+                    adaptive_enabled: e.target.checked,
+                    gain_indicator_tag: loop?.gain_indicator_tag || adaptiveDraft.indicator_tag,
+                    gain_low: loop?.gain_low ?? adaptiveDraft.gain_low,
+                    gain_high: loop?.gain_high ?? adaptiveDraft.gain_high,
+                  })}
+                  className="h-3.5 w-3.5 rounded accent-accent"
+                />
+                <span className="text-ink">Включить адаптивную настройку</span>
+              </label>
+              {adaptiveEnabled && gainFactor != null && (
+                <div className="flex items-center gap-3 text-[10.5px]">
+                  <span className="text-dim">Текущий множитель:</span>
+                  <span className="font-mono font-semibold text-accent">{gainFactor.toFixed(3)}</span>
+                  <span className="text-dim">Kp×{gainFactor.toFixed(2)} Ki×{gainFactor.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[9.5px] text-dim">Тег индикатора</label>
+                  <input
+                    value={loop?.gain_indicator_tag ?? adaptiveDraft.indicator_tag}
+                    onChange={(e) => setAdaptiveDraft({ ...adaptiveDraft, indicator_tag: e.target.value })}
+                    placeholder="plant.crushing.fi101"
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] text-dim">Gain Low</label>
+                  <input
+                    type="number"
+                    value={loop?.gain_low ?? adaptiveDraft.gain_low}
+                    onChange={(e) => setAdaptiveDraft({ ...adaptiveDraft, gain_low: parseFloat(e.target.value) || 0 })}
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] text-dim">Gain High</label>
+                  <input
+                    type="number"
+                    value={loop?.gain_high ?? adaptiveDraft.gain_high}
+                    onChange={(e) => setAdaptiveDraft({ ...adaptiveDraft, gain_high: parseFloat(e.target.value) || 100 })}
+                    className="mt-0.5 h-6 w-full rounded border border-line bg-base px-1.5 font-mono text-[10.5px] text-ink outline-none focus:border-accent/60"
+                  />
+                </div>
+              </div>
+              <p className="text-[9px] leading-relaxed text-dim">
+                Диапазон [Gain Low, Gain High] нормализует показание индикатора в множитель ×0.5..×1.5.
+                При выходе за диапазон — clamp ×0.25..×4.0. Коэффициенты Kp/Ki пересчитываются каждый тик без переинициализации петли.
+              </p>
+              {adaptiveEnabled && (
+                <button
+                  onClick={() => void write('adaptive', {
+                    adaptive_enabled: false,
+                    gain_indicator_tag: loop?.gain_indicator_tag || '',
+                    gain_low: loop?.gain_low ?? 50,
+                    gain_high: loop?.gain_high ?? 200,
+                  })}
+                  className="h-6 rounded border border-alarm/40 bg-alarm/10 px-2 text-[10px] font-semibold text-alarm hover:bg-alarm/20"
+                >
+                  Отключить adaptive
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

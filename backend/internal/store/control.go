@@ -44,24 +44,35 @@ type ControlLoop struct {
 	PrevError *float64   `json:"-"`
 	UpdatedBy string     `json:"updated_by"`
 	UpdatedAt *time.Time `json:"updated_at"`
+
+	// Adaptive gain scheduling (patent claim 4).
+	AdaptiveEnabled  bool    `json:"adaptive_enabled"`
+	GainIndicatorTag string  `json:"gain_indicator_tag"`
+	GainLow          float64 `json:"gain_low"`
+	GainHigh         float64 `json:"gain_high"`
+	CurrentFactor    float64 `json:"current_factor,omitempty"` // live info only
 }
 
 const loopSelect = `SELECT id, label, pv_tag, mv_tag, sp, sp_min, sp_max, out_min, out_max,
-	kp, ki, kd, deadband, slew, mode, state, output, integral, prev_error, updated_by, updated_at
+	kp, ki, kd, deadband, slew, mode, state, output, integral, prev_error, updated_by, updated_at,
+	adaptive_enabled, gain_indicator_tag, gain_low, gain_high
 	FROM control_loops`
 
 func scanLoop(row rowScanner) (*ControlLoop, error) {
 	var l ControlLoop
 	var prev sql.NullFloat64
 	var upd sql.NullString
+	var adaptiveEnabled int
 	if err := row.Scan(&l.ID, &l.Label, &l.PVTag, &l.MVTag, &l.SP, &l.SPMin, &l.SPMax,
 		&l.OutMin, &l.OutMax, &l.Kp, &l.Ki, &l.Kd, &l.Deadband, &l.Slew,
-		&l.Mode, &l.State, &l.Output, &l.Integral, &prev, &l.UpdatedBy, &upd); err != nil {
+		&l.Mode, &l.State, &l.Output, &l.Integral, &prev, &l.UpdatedBy, &upd,
+		&adaptiveEnabled, &l.GainIndicatorTag, &l.GainLow, &l.GainHigh); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
+	l.AdaptiveEnabled = adaptiveEnabled != 0
 	if prev.Valid {
 		l.PrevError = &prev.Float64
 	}
@@ -183,6 +194,25 @@ func SaveLoopRuntime(ctx context.Context, db *sql.DB, id string, output float64,
 		 updated_at = ? WHERE id = ?`,
 		output, mode, state, integral, prevError, FormatUTC(time.Now().UTC()), id)
 	return err
+}
+
+// UpdateLoopAdaptive enables or disables adaptive gain scheduling for a loop.
+func UpdateLoopAdaptive(ctx context.Context, db *sql.DB, id string, enabled bool, indicatorTag string, gainLow, gainHigh float64, by string) error {
+	var en int
+	if enabled {
+		en = 1
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE control_loops SET adaptive_enabled = ?, gain_indicator_tag = ?,
+		 gain_low = ?, gain_high = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
+		en, indicatorTag, gainLow, gainHigh, by, FormatUTC(time.Now().UTC()), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SeedControlLoops inserts the three flotation plant loops (TZ §9) when the

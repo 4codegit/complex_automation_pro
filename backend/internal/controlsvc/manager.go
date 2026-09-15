@@ -96,6 +96,22 @@ func (m *Manager) tickLoop(ctx context.Context, l *store.ControlLoop, now time.T
 		Deadband: l.Deadband, Slew: l.Slew,
 		Interval: time.Second,
 	}
+
+	// Adaptive gain scheduling (patent claim 4): read the indicator tag,
+	// compute the gain factor, and scale Kp/Ki without loop re-init.
+	var currentFactor float64
+	if l.AdaptiveEnabled && l.GainIndicatorTag != "" {
+		if indicator, err := store.LatestGoodNumericReading(ctx, m.db, l.GainIndicatorTag); err == nil && indicator.ValueNumber != nil {
+			gs := control.BuildScheduler(control.AdaptiveConfig{
+				Enabled:   true,
+				GainLow:   l.GainLow,
+				GainHigh:  l.GainHigh,
+			}, l.Kp, l.Ki)
+			cfg.Kp, cfg.Ki = gs.Adjust(*indicator.ValueNumber)
+			currentFactor = control.DefaultGainFactor(*indicator.ValueNumber, l.GainLow, l.GainHigh)
+		}
+	}
+
 	prev := control.State{Integral: l.Integral, Output: percentOf(*l, l.Output), Status: control.StatusAuto, HasPrev: l.PrevError != nil}
 	if l.PrevError != nil {
 		prev.PrevErr = *l.PrevError
@@ -109,6 +125,7 @@ func (m *Manager) tickLoop(ctx context.Context, l *store.ControlLoop, now time.T
 	}
 	l.Output = output
 	l.State = store.LoopStateOK
+	l.CurrentFactor = currentFactor
 	m.publishWithPv(*l, r.ValueNumber)
 }
 
@@ -124,9 +141,14 @@ func (m *Manager) publishWithPv(l store.ControlLoop, pv *float64) {
 		"pv_tag": l.PVTag, "mv_tag": l.MVTag,
 		"mode": l.Mode, "state": l.State,
 		"sp": l.SP, "out": l.Output,
+		"adaptive_enabled": l.AdaptiveEnabled,
 	}
 	if pv != nil {
 		ev["pv"] = *pv
+	}
+	if l.AdaptiveEnabled {
+		ev["gain_factor"] = l.CurrentFactor
+		ev["gain_indicator_tag"] = l.GainIndicatorTag
 	}
 	m.broadcast(ev)
 }
