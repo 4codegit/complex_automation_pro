@@ -15,8 +15,8 @@ func TestControlLoopSetpointAndMode(t *testing.T) {
 	env := newTestEnv(t)
 
 	_, loops := getJSON(t, env, "/api/v1/control/loops")
-	if len(loops) != 4 {
-		t.Fatalf("seeded loops = %d, want 4 (lic301, fic301, dic401, phc301)", len(loops))
+	if len(loops) != 5 {
+		t.Fatalf("seeded loops = %d, want 5 (lic301, fic301, dic401, phc301, tic201)", len(loops))
 	}
 
 	// Writes require confirm:true.

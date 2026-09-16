@@ -142,6 +142,11 @@ func SeedAlarmLimits(ctx context.Context, db *sql.DB) error {
 	limits := []seedLimitSpec{
 		{tag: "fi101", loLo: f64(40), lo: f64(70), hi: f64(130), hiHi: f64(160), sev: "critical", notes: "Потеря производства"},
 		{tag: "ei201", loLo: f64(200), lo: f64(600), hi: f64(1800), hiHi: f64(2100), sev: "critical", notes: "Защита привода мельницы"},
+		{tag: "ti101", hi: f64(45), hiHi: f64(55), sev: "high", notes: "Перегрев подшипника дробилки"},
+		{tag: "ti201", hi: f64(70), hiHi: f64(78), sev: "critical", notes: "Перегрев подшипника мельницы — маслостанция"},
+		{tag: "ti301", hi: f64(30), hiHi: f64(35), sev: "medium", notes: "Температура пульпы флотации"},
+		{tag: "ti401", hi: f64(42), hiHi: f64(52), sev: "high", notes: "Перегрев гребкового устройства"},
+		{tag: "ti501", hi: f64(46), hiHi: f64(58), sev: "high", notes: "Перегрев вакуум-насоса"},
 		{tag: "pi201", loLo: f64(30), lo: f64(60), hi: f64(220), hiHi: f64(260), sev: "high", notes: "Классификация"},
 		{tag: "xi201", lo: f64(120), hi: f64(190), hiHi: f64(220), sev: "critical", notes: "Грубый слив → потеря извлечения"},
 		{tag: "li301", loLo: f64(300), lo: f64(380), hi: f64(700), hiHi: f64(760), sev: "critical", notes: "Перелив флотомашины"},

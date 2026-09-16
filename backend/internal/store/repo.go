@@ -22,6 +22,7 @@ var seedAssets = []Asset{
 	{ID: "plant.flotation", Name: "Флотация (rougher/scavenger, реагенты)", Area: "Обогащение", Criticality: "critical", Active: true},
 	{ID: "plant.thickening", Name: "Сгущение", Area: "Обезвоживание", Criticality: "high", Active: true},
 	{ID: "plant.filtration", Name: "Фильтрация и отгрузка", Area: "Обезвоживание", Criticality: "medium", Active: true},
+	{ID: "plant.lubrication", Name: "Маслоснабжение (станция смазки)", Area: "Вспомогательные", Criticality: "high", Active: true},
 	{ID: "plant.metallurgy", Name: "Расчётные показатели", Area: "Виртуальный", Criticality: "low", Active: true},
 }
 
@@ -37,8 +38,8 @@ type seedTagSpec struct {
 	crit     string
 }
 
-// seedTags is the flotation plant instrument catalogue (TZ §7): 28 input
-// measurements, 7 output actuator positions and 8 derived metallurgical
+// seedTags is the flotation plant instrument catalogue (TZ §7): 33 input
+// measurements, 8 output actuator positions and 8 derived metallurgical
 // values. Register maps live with the edge gateway configuration.
 var seedTags = []seedTagSpec{
 	// Crushing / ore feed
@@ -47,6 +48,7 @@ var seedTags = []seedTagSpec{
 	{"tit101", "plant.crushing", "Температура пульпы", "C", 5, 45, "low"},
 	{"si101", "plant.crushing", "Уровень рудного бункера", "%", 0, 100, "high"},
 	{"hc101", "plant.crushing", "Задание питателя", "t/h", 0, 200, "medium"},
+	{"ti101", "plant.crushing", "Температура подшипника дробилки", "C", 0, 100, "high"},
 	// Grinding / classification
 	{"ei201", "plant.grinding", "Мощность мельницы", "kW", 0, 2500, "critical"},
 	{"fi201", "plant.grinding", "Свежая вода в мельницу", "m3/h", 0, 300, "medium"},
@@ -55,6 +57,7 @@ var seedTags = []seedTagSpec{
 	{"xi201", "plant.grinding", "Крупность слива P80", "um", 40, 300, "critical"},
 	{"fi202", "plant.grinding", "Расход пульпы на гидроциклон", "m3/h", 0, 600, "medium"},
 	{"fc201", "plant.grinding", "Клапан воды мельницы", "%", 0, 100, "medium"},
+	{"ti201", "plant.grinding", "Температура подшипника мельницы", "C", 0, 100, "critical"},
 	// Flotation
 	{"li301", "plant.flotation", "Уровень пульпы во флотомашине", "mm", 200, 800, "critical"},
 	{"fi301", "plant.flotation", "Расход воздуха аэрации", "m3/h", 0, 600, "medium"},
@@ -70,17 +73,22 @@ var seedTags = []seedTagSpec{
 	{"fc301", "plant.flotation", "Задание насоса собирателя", "ml/min", 0, 500, "medium"},
 	{"fc302", "plant.flotation", "Задание насоса вспенивателя", "ml/min", 0, 300, "low"},
 	{"lc301", "plant.flotation", "Хвостовая задвижка флотомашины", "%", 0, 100, "critical"},
+	{"ti301", "plant.flotation", "Температура пульпы флотации", "C", 0, 100, "medium"},
 	// Thickening
 	{"li401", "plant.thickening", "Уровень постели сгустителя", "m", 0, 8, "critical"},
 	{"di401", "plant.thickening", "Плотность сгущённого продукта", "%sol", 20, 70, "high"},
 	{"ei401", "plant.thickening", "Момент гребкового устройства", "%", 0, 100, "critical"},
 	{"fi401", "plant.thickening", "Доза флокулянта", "g/t", 0, 50, "medium"},
 	{"fc401", "plant.thickening", "Насос разгрузки сгустителя", "%", 0, 100, "high"},
+	{"ti401", "plant.thickening", "Температура подшипника гребкового устройства", "C", 0, 100, "high"},
 	// Filtration
 	{"pi501", "plant.filtration", "Вакуум фильтра", "kPa", 0, 80, "high"},
 	{"mi501", "plant.filtration", "Влажность кека", "%", 4, 25, "high"},
 	{"wi501", "plant.filtration", "Производительность по сухому кеку", "t/h", 0, 10, "medium"},
 	{"hi501", "plant.filtration", "Время цикла фильтра", "s", 10, 120, "low"},
+	{"ti501", "plant.filtration", "Температура вакуум-насоса", "C", 0, 100, "high"},
+	// Lubrication (oil station): one valve cools all bearing circuits
+	{"ho101", "plant.lubrication", "Клапан маслостанции", "%", 0, 100, "critical"},
 	// Derived metallurgical values (virtual, written by the calc service)
 	{"calc_epsilon", "plant.metallurgy", "Извлечение Cu", "%", 0, 100, "critical"},
 	{"calc_gamma", "plant.metallurgy", "Выход концентрата", "%", 0, 20, "high"},
@@ -121,7 +129,7 @@ func SeedRegistry(ctx context.Context, db *sql.DB) error {
 		direction := DirectionInput
 		if spec.metric == "hc101" || spec.metric == "fc201" || spec.metric == "fc301" ||
 			spec.metric == "fc302" || spec.metric == "lc301" || spec.metric == "fc401" ||
-			spec.metric == "hi501" {
+			spec.metric == "hi501" || spec.metric == "ho101" {
 			direction = DirectionOutput
 		}
 		t := Tag{

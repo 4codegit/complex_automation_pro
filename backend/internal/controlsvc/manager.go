@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log"
+	"strconv"
 	"time"
 
 	"cap/internal/alarms"
@@ -57,6 +58,13 @@ func (m *Manager) Tick(ctx context.Context) {
 }
 
 func (m *Manager) tickLoop(ctx context.Context, l *store.ControlLoop, now time.Time) {
+	// Temperature loops (tic201): the high-temperature oil interlock must act
+	// regardless of the operator mode, so they bypass the manual early-return.
+	if l.LoopType == store.LoopTypeTemp {
+		m.tickTempLoop(ctx, l, now)
+		return
+	}
+
 	if l.Mode == store.LoopModeManual {
 		// Manual: output stays where the operator (or the watchdog freeze)
 		// put it; only the live state is republished.
@@ -66,19 +74,7 @@ func (m *Manager) tickLoop(ctx context.Context, l *store.ControlLoop, now time.T
 
 	r, err := store.LatestGoodNumericReading(ctx, m.db, l.PVTag)
 	if err != nil || m.now().Sub(r.ObservedAt) > m.stale {
-		// TZ §9 watchdog: stale PV → manual, output frozen (not zeroed — the
-		// actuator holds its last safe position), operational alarm raised.
-		if l.State != store.LoopStateWatchdog {
-			_ = store.SaveLoopRuntime(ctx, m.db, l.ID, l.Output, store.LoopModeManual, store.LoopStateWatchdog, l.Integral, deref(l.PrevError))
-			if m.alarms != nil {
-				m.alarms.RaiseOperational(ctx, "loop:"+l.ID, "control_fault", "high",
-					"Петля "+l.ID+": потеря актуального PV, переход в ручной режим", now)
-			}
-			updated, _ := store.GetLoop(ctx, m.db, l.ID)
-			if updated != nil {
-				m.publish(*updated)
-			}
-		}
+		m.watchdog(ctx, l, now)
 		return
 	}
 
@@ -97,6 +93,94 @@ func (m *Manager) tickLoop(ctx context.Context, l *store.ControlLoop, now time.T
 		return
 	}
 
+	m.tickStandard(ctx, l, r, now)
+}
+
+// watchdog freezes the loop on stale PV (TZ §9): manual mode, output held,
+// operational alarm raised.
+func (m *Manager) watchdog(ctx context.Context, l *store.ControlLoop, now time.Time) {
+	if l.State == store.LoopStateWatchdog {
+		return
+	}
+	_ = store.SaveLoopRuntime(ctx, m.db, l.ID, l.Output, store.LoopModeManual, store.LoopStateWatchdog, l.Integral, deref(l.PrevError))
+	if m.alarms != nil {
+		m.alarms.RaiseOperational(ctx, "loop:"+l.ID, "control_fault", "high",
+			"Петля "+l.ID+": потеря актуального PV, переход в ручной режим", now)
+	}
+	if updated, _ := store.GetLoop(ctx, m.db, l.ID); updated != nil {
+		m.publish(*updated)
+	}
+}
+
+// tickTempLoop drives the equipment-temperature loop (oil station). The
+// interlock (PV ≥ TempInterlock) forces the oil valve to 100 % in auto mode —
+// even from manual — because bearing protection outranks operator intent.
+// Release hysteresis: 5 °C below the trip point.
+func (m *Manager) tickTempLoop(ctx context.Context, l *store.ControlLoop, now time.Time) {
+	const releaseHyst = 5.0
+
+	r, err := store.LatestGoodNumericReading(ctx, m.db, l.PVTag)
+	if err != nil || m.now().Sub(r.ObservedAt) > m.stale {
+		if l.State != store.LoopStateInterlock {
+			m.watchdog(ctx, l, now)
+		}
+		return
+	}
+	pv := *r.ValueNumber
+
+	interlocked := l.State == store.LoopStateInterlock
+	if !interlocked && l.TempInterlock > 0 && pv >= l.TempInterlock {
+		interlocked = true
+		if m.alarms != nil {
+			m.alarms.RaiseOperational(ctx, "loop:"+l.ID, "temp_interlock", "critical",
+				"Перегрев "+l.ID+": температура "+formatC(pv)+" ≥ "+formatC(l.TempInterlock)+
+					" — аварийная подача масла (клапан 100 %)", now)
+		}
+	}
+
+	if interlocked {
+		if pv < l.TempInterlock-releaseHyst {
+			// Cooled down: release, hand the loop back to the operator.
+			if m.alarms != nil {
+				m.alarms.ClearOperational(ctx, "loop:"+l.ID, now)
+			}
+			_ = store.SaveLoopRuntime(ctx, m.db, l.ID, l.Output, store.LoopModeManual, store.LoopStateOK, l.Integral, deref(l.PrevError))
+			if updated, _ := store.GetLoop(ctx, m.db, l.ID); updated != nil {
+				m.publish(*updated)
+			}
+			return
+		}
+		_ = store.SaveLoopRuntime(ctx, m.db, l.ID, l.OutMax, store.LoopModeAuto, store.LoopStateInterlock, l.Integral, deref(l.PrevError))
+		if updated, _ := store.GetLoop(ctx, m.db, l.ID); updated != nil {
+			m.publishWithPv(*updated, r.ValueNumber)
+		}
+		return
+	}
+
+	// No interlock: a manual loop belongs to the operator, an auto loop runs
+	// the ordinary PID (which also brings it out of the watchdog state).
+	if l.Mode == store.LoopModeManual {
+		if l.State != store.LoopStateOK {
+			l.State = store.LoopStateOK
+			_ = store.SaveLoopRuntime(ctx, m.db, l.ID, l.Output, l.Mode, l.State, l.Integral, deref(l.PrevError))
+			if m.alarms != nil {
+				m.alarms.ClearOperational(ctx, "loop:"+l.ID, now)
+			}
+		}
+		m.publish(*l)
+		return
+	}
+	if l.State == store.LoopStateWatchdog {
+		l.State = store.LoopStateOK
+		if m.alarms != nil {
+			m.alarms.ClearOperational(ctx, "loop:"+l.ID, now)
+		}
+	}
+	m.tickStandard(ctx, l, r, now)
+}
+
+// tickStandard is the plain PID evaluation shared by standard and temp loops.
+func (m *Manager) tickStandard(ctx context.Context, l *store.ControlLoop, r *store.Reading, now time.Time) {
 	cfg := control.Config{
 		PVTag: l.PVTag, OutTag: l.MVTag,
 		Kp: l.Kp, Ki: l.Ki, Kd: l.Kd,
@@ -134,6 +218,11 @@ func (m *Manager) tickLoop(ctx context.Context, l *store.ControlLoop, now time.T
 	l.State = store.LoopStateOK
 	l.CurrentFactor = currentFactor
 	m.publishWithPv(*l, r.ValueNumber)
+}
+
+// formatC renders a temperature for alarm messages.
+func formatC(v float64) string {
+	return strconv.FormatFloat(v, 'f', 1, 64) + " °C"
 }
 
 // tickPHLoop handles the pH regulation loop (patent claim 5).

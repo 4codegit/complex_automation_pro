@@ -58,7 +58,11 @@ export const WsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [alarms, setAlarms] = useState<AlarmFeedItem[]>([]);
   const [loops, setLoops] = useState<Map<string, LoopStateEvent>>(new Map());
   const historyRef = useRef<Map<string, LivePoint[]>>(new Map());
-  const [, forceTick] = useState(0);
+  // Snapshot of the ring buffer handed to consumers: rebuilt on every
+  // telemetry event so useMemos keyed on `history` recompute (mutating
+  // historyRef in place never changes object identity, and the chart would
+  // freeze on its first render).
+  const [history, setHistory] = useState<Map<string, LivePoint[]>>(new Map());
 
   // Latest-refs so the socket callbacks mutate without re-subscribing.
   const latestRef = useRef(latest);
@@ -114,6 +118,7 @@ export const WsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             latestRef.current.set(t.tag_id, point);
             pushPoint(t.tag_id, point);
             setLatest(new Map(latestRef.current));
+            setHistory(new Map(historyRef.current));
             break;
           }
           case 'alarm_raised':
@@ -144,7 +149,6 @@ export const WsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           default:
             break;
         }
-        forceTick((n) => (n + 1) % 100000);
       };
 
       socket.onclose = () => {
@@ -166,8 +170,8 @@ export const WsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   }, [pushPoint]);
 
   const value = useMemo<WsContextValue>(
-    () => ({ status, latest, history: historyRef.current, alarms, loops }),
-    [status, latest, alarms, loops],
+    () => ({ status, latest, history, alarms, loops }),
+    [status, latest, history, alarms, loops],
   );
 
   return <WsContext.Provider value={value}>{children}</WsContext.Provider>;

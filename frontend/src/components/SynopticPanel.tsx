@@ -11,15 +11,21 @@ interface NodeSpec {
   h: number;
   label: string;
   metrics: { tag: string; unit?: boolean }[];
+  // Equipment temperature tag: rendered as a red-hot badge when above the
+  // high limit (oil-station interlock domain).
+  tempTag?: string;
+  tempHi?: number;
 }
 
 // Vertical flowsheet (TZ §5): bin → crusher → mill+cyclone → flotation →
 // thickener → filter → shipping, with the tails branch. Values stream live;
-// clicking a node opens its faceplate.
+// clicking a node opens its faceplate. Every equipment node carries its
+// bearing/pulp temperature (ti*).
 const NODES: NodeSpec[] = [
   {
     asset: 'plant.crushing', x: 60, y: 30, w: 240, h: 88, label: 'Дробление',
     metrics: [{ tag: 'plant.crushing.fi101' }, { tag: 'plant.crushing.si101' }],
+    tempTag: 'plant.crushing.ti101', tempHi: 45,
   },
   {
     asset: 'plant.grinding', x: 60, y: 168, w: 240, h: 112, label: 'Измельчение',
@@ -28,6 +34,7 @@ const NODES: NodeSpec[] = [
       { tag: 'plant.grinding.xi201' },
       { tag: 'plant.grinding.pi201' },
     ],
+    tempTag: 'plant.grinding.ti201', tempHi: 70,
   },
   {
     asset: 'plant.flotation', x: 60, y: 330, w: 240, h: 128, label: 'Флотация',
@@ -37,14 +44,17 @@ const NODES: NodeSpec[] = [
       { tag: 'plant.flotation.aft301' },
       { tag: 'plant.flotation.qi301' },
     ],
+    tempTag: 'plant.flotation.ti301', tempHi: 30,
   },
   {
     asset: 'plant.thickening', x: 60, y: 508, w: 240, h: 100, label: 'Сгущение',
     metrics: [{ tag: 'plant.thickening.li401' }, { tag: 'plant.thickening.di401' }],
+    tempTag: 'plant.thickening.ti401', tempHi: 42,
   },
   {
     asset: 'plant.filtration', x: 60, y: 658, w: 240, h: 100, label: 'Фильтрация',
     metrics: [{ tag: 'plant.filtration.mi501' }, { tag: 'plant.filtration.wi501' }],
+    tempTag: 'plant.filtration.ti501', tempHi: 46,
   },
 ];
 
@@ -90,6 +100,27 @@ const SynopticPanel: React.FC = () => {
             нет связи
           </text>
         )}
+        {/* Equipment temperature badge: grey normally, red-hot above tempHi */}
+        {node.tempTag && (() => {
+          const t = live.get(node.tempTag!);
+          const hot = t ? t.value >= (node.tempHi ?? 40) : false;
+          return (
+            <g>
+              <rect
+                x={node.x + node.w - 58} y={node.y + 6} width={52} height={17} rx={4}
+                className={hot ? 'fill-alarm/15 stroke-alarm' : 'fill-panel2 stroke-line'}
+                strokeWidth={hot ? 1.5 : 1}
+              />
+              <text
+                x={node.x + node.w - 32} y={node.y + 18} textAnchor="middle"
+                fontSize={10.5}
+                className={`num font-semibold ${hot ? 'fill-alarm' : 'fill-dim'}`}
+              >
+                {t ? `🌡 ${t.value.toFixed(1)}°` : '🌡 —'}
+              </text>
+            </g>
+          );
+        })()}
         {node.metrics.map((m, i) => {
           const v = valueOf(m.tag);
           const label = tagLabel(m.tag);
@@ -174,6 +205,28 @@ const SynopticPanel: React.FC = () => {
             <path d="M 430 194 V 150 H 300" fill="none" strokeWidth={3} className="stroke-warn/50" strokeDasharray="6 4" />
             <text x={360} y={142} textAnchor="middle" className="fill-warn" fontSize={9.5}>
               пески (циркуляция)
+            </text>
+          </g>
+
+          {/* Oil station (lubrication): valve position + interlock hint */}
+          <g>
+            <rect x={430} y={600} width={150} height={64} rx={8} className="fill-panel stroke-line" strokeWidth={1.5} />
+            <text x={442} y={618} className="fill-mute" fontSize={10.5}>Маслостанция</text>
+            <text x={442} y={636} className="fill-dim" fontSize={9.5}>клапан ho101</text>
+            <text
+              x={568} y={640} textAnchor="end" fontSize={14}
+              className={`num font-semibold ${(() => {
+                const v = live.get('plant.lubrication.ho101');
+                if (!v) return 'fill-dim';
+                return v.value >= 95 ? 'fill-alarm' : v.value > 60 ? 'fill-warn' : 'fill-ok';
+              })()}`
+              }
+            >
+              {live.has('plant.lubrication.ho101') ? live.get('plant.lubrication.ho101')!.value.toFixed(0) : '—'}%
+            </text>
+            <path d="M 505 600 V 280 H 300" fill="none" strokeWidth={2} className="stroke-ok/40" strokeDasharray="5 4" />
+            <text x={620} y={660} textAnchor="middle" className="fill-dim" fontSize={8.5}>
+              100 % = аварийный залив
             </text>
           </g>
 

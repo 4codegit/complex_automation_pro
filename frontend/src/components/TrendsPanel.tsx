@@ -67,7 +67,12 @@ const TrendsPanel: React.FC = () => {
 
   useEffect(() => {
     void loadHistory();
-  }, [loadHistory]);
+    // Historical windows poll on a slow cadence so long ranges keep moving
+    // (the live 15-min window streams from the WebSocket instead).
+    if (!useHistorian) return;
+    const t = window.setInterval(() => void loadHistory(), 30_000);
+    return () => window.clearInterval(t);
+  }, [loadHistory, useHistorian]);
 
   const selectableTags = useMemo(
     () => tags.filter((t) => t.direction === 'input' &&

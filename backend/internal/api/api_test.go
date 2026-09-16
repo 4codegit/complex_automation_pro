@@ -432,8 +432,8 @@ func TestRegistryCatalogIsSeeded(t *testing.T) {
 	env := newTestEnv(t)
 
 	resp, assets := getJSON(t, env, "/api/v1/assets")
-	if resp.StatusCode != http.StatusOK || len(assets) != 6 {
-		t.Fatalf("assets status/len = %d/%d, want 6 assets", resp.StatusCode, len(assets))
+	if resp.StatusCode != http.StatusOK || len(assets) != 7 {
+		t.Fatalf("assets status/len = %d/%d, want 7 assets", resp.StatusCode, len(assets))
 	}
 	byID := map[string]bool{}
 	for _, a := range assets {
@@ -446,15 +446,15 @@ func TestRegistryCatalogIsSeeded(t *testing.T) {
 	}
 
 	_, tags := getJSON(t, env, "/api/v1/tags")
-	if len(tags) != 43 { // 28 inputs + 7 actuators + 8 calc tags
-		t.Fatalf("tags = %d, want 43", len(tags))
+	if len(tags) != 49 { // 33 inputs + 8 actuators + 8 calc tags
+		t.Fatalf("tags = %d, want 49", len(tags))
 	}
 	directions := map[string]int{}
 	for _, tg := range tags {
 		directions[tg["direction"].(string)]++
 	}
-	if directions["output"] != 7 {
-		t.Fatalf("output tags = %d, want 7", directions["output"])
+	if directions["output"] != 8 {
+		t.Fatalf("output tags = %d, want 8", directions["output"])
 	}
 
 	_, roles := getJSON(t, env, "/api/v1/access/roles")

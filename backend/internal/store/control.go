@@ -16,8 +16,14 @@ const (
 	LoopModeAuto   = "auto"
 	LoopModeManual = "manual"
 
-	LoopStateOK       = "ok"
-	LoopStateWatchdog = "watchdog"
+	LoopStateOK        = "ok"
+	LoopStateWatchdog  = "watchdog"
+	LoopStateInterlock = "interlock"
+
+	// LoopTypeStandard is a regular PID loop; LoopTypeTemp marks the
+	// equipment-temperature loop with the high-temperature oil interlock.
+	LoopTypeStandard = "standard"
+	LoopTypeTemp     = "temp"
 )
 
 // ControlLoop is one supervisory loop: PV tag, MV (actuator) tag, setpoint
@@ -61,13 +67,18 @@ type ControlLoop struct {
 	FlowTag             string  `json:"flow_tag"`
 	KpTempFactor        float64 `json:"kp_temp_factor"`
 	KiFlowFactor        float64 `json:"ki_flow_factor"`
+
+	// Temperature interlock: when the PV reaches TempInterlock the loop
+	// output is forced to the maximum (oil) regardless of mode until the
+	// temperature falls back below the threshold minus hysteresis.
+	TempInterlock float64 `json:"temp_interlock"`
 }
 
 const loopSelect = `SELECT id, label, pv_tag, mv_tag, sp, sp_min, sp_max, out_min, out_max,
 	kp, ki, kd, deadband, slew, mode, state, output, integral, prev_error, updated_by, updated_at,
 	adaptive_enabled, gain_indicator_tag, gain_low, gain_high,
 	loop_type, ph_deadband_warning, ph_deadband_critical, self_tuning_enabled,
-	temperature_tag, flow_tag, kp_temp_factor, ki_flow_factor
+	temperature_tag, flow_tag, kp_temp_factor, ki_flow_factor, temp_interlock
 	FROM control_loops`
 
 func scanLoop(row rowScanner) (*ControlLoop, error) {
@@ -81,7 +92,7 @@ func scanLoop(row rowScanner) (*ControlLoop, error) {
 		&l.Mode, &l.State, &l.Output, &l.Integral, &prev, &l.UpdatedBy, &upd,
 		&adaptiveEnabled, &l.GainIndicatorTag, &l.GainLow, &l.GainHigh,
 		&l.LoopType, &l.PHDeadbandWarning, &l.PHDeadbandCritical, &selfTuningEnabled,
-		&l.TemperatureTag, &l.FlowTag, &l.KpTempFactor, &l.KiFlowFactor); err != nil {
+		&l.TemperatureTag, &l.FlowTag, &l.KpTempFactor, &l.KiFlowFactor, &l.TempInterlock); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -296,6 +307,10 @@ func SeedControlLoops(ctx context.Context, db *sql.DB) error {
 			SelfTuningEnabled: true,
 			TemperatureTag: "plant.flotation.ti301", FlowTag: "plant.flotation.fi301",
 			KpTempFactor: 0.02, KiFlowFactor: 0.01},
+		{ID: "tic201", Label: "Температура подшипника мельницы", PVTag: "plant.grinding.ti201", MVTag: "plant.lubrication.ho101",
+			SP: 55, SPMin: 40, SPMax: 70, OutMin: 0, OutMax: 100,
+			Kp: -3.0, Ki: -1.0, Kd: 0, Deadband: 0.5, Slew: 5, Mode: LoopModeManual, State: LoopStateOK,
+			LoopType: LoopTypeTemp, TempInterlock: 75},
 	}
 	now := time.Now().UTC()
 	for _, l := range loops {
@@ -304,13 +319,13 @@ func SeedControlLoops(ctx context.Context, db *sql.DB) error {
 			 (id, label, pv_tag, mv_tag, sp, sp_min, sp_max, out_min, out_max,
 			  kp, ki, kd, deadband, slew, mode, state, output, updated_by, updated_at,
 			  loop_type, ph_deadband_warning, ph_deadband_critical, self_tuning_enabled,
-			  temperature_tag, flow_tag, kp_temp_factor, ki_flow_factor)
+			  temperature_tag, flow_tag, kp_temp_factor, ki_flow_factor, temp_interlock)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			  ?, ?, ?, ?, ?, ?, ?, ?)`,
+			  ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			l.ID, l.Label, l.PVTag, l.MVTag, l.SP, l.SPMin, l.SPMax, l.OutMin, l.OutMax,
 			l.Kp, l.Ki, l.Kd, l.Deadband, l.Slew, l.Mode, l.State, l.Output, "seed", FormatUTC(now),
 			l.LoopType, l.PHDeadbandWarning, l.PHDeadbandCritical, boolToInt(l.SelfTuningEnabled),
-			l.TemperatureTag, l.FlowTag, l.KpTempFactor, l.KiFlowFactor); err != nil {
+			l.TemperatureTag, l.FlowTag, l.KpTempFactor, l.KiFlowFactor, l.TempInterlock); err != nil {
 			return err
 		}
 	}

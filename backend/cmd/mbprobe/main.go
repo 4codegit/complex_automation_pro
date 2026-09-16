@@ -29,16 +29,17 @@ func main() {
 	}
 	defer h.Close()
 	c := modbus.NewClient(h)
-	ir, err := c.ReadInputRegisters(0, 28)
+	ir, err := c.ReadInputRegisters(0, 33)
 	if err != nil {
-		log.Fatalf("чтение IR0..27: %v", err)
+		log.Fatalf("чтение IR0..32: %v", err)
 	}
-	fmt.Printf("%s отвечает, unit 1. IR0..IR27 (сырое): %v\n", addr, ir[:28])
+	fmt.Printf("%s отвечает, unit 1. IR0..IR32 (сырое): %v\n", addr, ir[:33])
 	fmt.Printf("  IR0  x0.1  -> %.1f t/h (fi101)\n", float64(binary.BigEndian.Uint16(ir[0:2]))*0.1)
 	fmt.Printf("  IR10 x0.01 -> %.2f pH  (ai301)\n", float64(binary.BigEndian.Uint16(ir[20:22]))*0.01)
-	hr, err := c.ReadHoldingRegisters(0, 7)
+	fmt.Printf("  IR29 x0.1  -> %.1f °C  (ti201, подшипник мельницы)\n", float64(binary.BigEndian.Uint16(ir[58:60]))*0.1)
+	hr, err := c.ReadHoldingRegisters(0, 10)
 	if err != nil {
-		log.Fatalf("чтение HR0..6: %v", err)
+		log.Fatalf("чтение HR0..9: %v", err)
 	}
-	fmt.Printf("  HR0..HR6 (сырое): %v\n", hr)
+	fmt.Printf("  HR0..HR9 (сырое): %v\n", hr)
 }

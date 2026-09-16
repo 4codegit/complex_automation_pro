@@ -28,6 +28,11 @@ type Model struct {
 
 	rng *rand.Rand
 
+	// tRng drives measurement jitter of the temperature sensors only: a
+	// separate stream keeps the process-noise draw sequence (and therefore
+	// every seeded acceptance test) unchanged by the sensor additions.
+	tRng *rand.Rand
+
 	// Holding-register (actuator) image. FC6 writes land here directly;
 	// the model reads them every tick.
 	holding [NumHoldingRegisters]uint16
@@ -87,6 +92,17 @@ type Model struct {
 	// --- Misc ---
 	pulpTempC float64
 
+	// --- Equipment temperatures (bearing thermal state, °C). One shared oil
+	// station (ho101) cools them all: heat from load, cooling from oil.
+	ti101 float64 // crusher bearing
+	ti201 float64 // mill bearing (hottest, PID PV)
+	ti301 float64 // flotation pulp
+	ti401 float64 // rake drive bearing
+	ti501 float64 // vacuum pump
+
+	// millOverloadUntil drives the 150 % load scenario 9 (bearing heating).
+	millOverloadUntil time.Time
+
 	// commLoss is scenario 4: the Modbus server accepts connections but
 	// never answers (the client times out), emulating a dead device.
 	commLoss bool
@@ -99,7 +115,7 @@ type Model struct {
 // New creates the model at the nominal steady state (TZ §5/§8): 100 t/h feed,
 // CL 250 %, level 500 mm, pH 10.2, bed 3.0 m, beta 22 %, theta 0.08 %.
 func New(seed uint64, now time.Time) *Model {
-	m := &Model{rng: rand.New(rand.NewPCG(seed, seed)), clock: now}
+	m := &Model{rng: rand.New(rand.NewPCG(seed, seed)), tRng: rand.New(rand.NewPCG(seed^0x5eed, seed)), clock: now}
 	m.holding[RegHC101] = enc(100.0, holdingScales[RegHC101])
 	m.holding[RegFC201] = enc(55.0, holdingScales[RegFC201])
 	m.holding[RegFC301] = enc(180, holdingScales[RegFC301])
@@ -107,6 +123,7 @@ func New(seed uint64, now time.Time) *Model {
 	m.holding[RegLC301] = enc(40.0, holdingScales[RegLC301])
 	m.holding[RegFC401] = enc(45.0, holdingScales[RegFC401])
 	m.holding[RegHI501] = enc(45, holdingScales[RegHI501])
+	m.holding[RegHO101] = enc(40.0, holdingScales[RegHO101]) // oil valve 40 %: nominal cooling
 
 	m.binTPH = 100.0
 	m.feedTPH = 100.0
@@ -134,6 +151,13 @@ func New(seed uint64, now time.Time) *Model {
 	m.cakeMoist = 10.5
 	m.cakeTPH = 2.94
 	m.pulpTempC = 20.0
+	// Nominal steady points at oil valve 40 % (§8.8): crusher 38, mill 56,
+	// pulp 23, rake 35, vacuum pump 38 °C.
+	m.ti101 = 38.0
+	m.ti201 = 56.0
+	m.ti301 = 23.0
+	m.ti401 = 35.0
+	m.ti501 = 38.0
 
 	m.Tick(0) // build the initial sensor image from the nominal state
 	return m
@@ -323,6 +347,30 @@ func (m *Model) Tick(dt time.Duration) {
 	// --- Pulp temperature: slow ambient drift ---
 	m.pulpTempC = lag(m.pulpTempC, 20, 600, d)
 
+	// --- §8.8 Equipment temperatures vs oil station ---
+	// One shared oil skid (ho101, %): each node heats from its load and cools
+	// with oil flow. Nominal (oil 40 %): 38/56/23/35/38 °C. With the valve
+	// closed the mill bearing drifts to 78 °C — above the hi_hi limit and the
+	// 75 °C interlock of the tic201 loop, driving the safety pour.
+	oilPct := dec(m.holding[RegHO101], holdingScales[RegHO101])
+	// Overload scenario 9: 220 % heat load. Even with the oil valve fully
+	// open the equilibrium exceeds the interlock threshold, so the safety
+	// pour stays latched until the scenario expires (PID alone is not enough).
+	overload := 1.0
+	if m.clock.Before(m.millOverloadUntil) {
+		overload = 2.2
+	}
+	ti101T := 20 + 30*(fi101*hEff/100) - 0.30*oilPct
+	ti201T := 20 + 58*(m.millPowerKW/1250)*overload - 0.35*oilPct
+	ti301T := m.pulpTempC + 5 - 0.05*oilPct
+	ti401T := 20 + 25*(m.rakeTorq/55) - 0.25*oilPct
+	ti501T := 20 + 30*(m.vacuumKPa/62) - 0.30*oilPct
+	m.ti101 = lag(m.ti101, clampf(ti101T, 15, 100), 60, d)
+	m.ti201 = lag(m.ti201, clampf(ti201T, 15, 110), 60, d)
+	m.ti301 = lag(m.ti301, clampf(ti301T, 15, 60), 120, d)
+	m.ti401 = lag(m.ti401, clampf(ti401T, 15, 100), 60, d)
+	m.ti501 = lag(m.ti501, clampf(ti501T, 15, 100), 60, d)
+
 	// --- Air flow (uncontrolled) ---
 	airFlow := 350 + 10*math.Sin(float64(m.tickCount)/600)
 
@@ -361,6 +409,11 @@ func (m *Model) Tick(dt time.Duration) {
 	m.input[RegWI501] = enc(m.cakeTPH, inputScales[RegWI501])
 	m.input[RegTIT101] = enc(m.pulpTempC+jitter(m.rng, 0.02), inputScales[RegTIT101])
 	m.input[RegSI101] = enc(m.binTPH/binCapacityTPH*100, inputScales[RegSI101])
+	m.input[RegTI101] = enc(m.ti101+jitter(m.tRng, 0.05), inputScales[RegTI101])
+	m.input[RegTI201] = enc(m.ti201+jitter(m.tRng, 0.05), inputScales[RegTI201])
+	m.input[RegTI301] = enc(m.ti301+jitter(m.tRng, 0.05), inputScales[RegTI301])
+	m.input[RegTI401] = enc(m.ti401+jitter(m.tRng, 0.05), inputScales[RegTI401])
+	m.input[RegTI501] = enc(m.ti501+jitter(m.tRng, 0.05), inputScales[RegTI501])
 }
 
 // jitter returns a small zero-mean measurement noise.
@@ -435,6 +488,13 @@ func (m *Model) Scenario(code int, value int) string {
 			m.oreFactor = 1.0
 			return "руда: сульфидная"
 		}
+	case ScenarioMillOverload:
+		if value > 0 {
+			m.millOverloadUntil = m.clock.Add(time.Duration(value) * time.Second)
+			return fmt.Sprintf("пиковая нагрузка мельницы 150 %% на %d с (нагрев подшипника)", value)
+		}
+		m.millOverloadUntil = time.Time{}
+		return "пиковая нагрузка мельницы снята"
 	default:
 		return fmt.Sprintf("неизвестный сценарий %d", code)
 	}
@@ -492,6 +552,8 @@ type State struct {
 	RakeTorque float64 `json:"rake_torque_pct"`
 	BinPercent float64 `json:"bin_percent"`
 	OreFactor  float64 `json:"ore_factor"`
+	MillBearingC float64 `json:"mill_bearing_c"`
+	OilValvePct  float64 `json:"oil_valve_pct"`
 }
 
 // State returns the internal state snapshot (diagnostics only).
@@ -504,5 +566,6 @@ func (m *Model) State() State {
 		ConcTPH: m.concTPH, ConcGrade: m.concGrade,
 		BedMass: m.bedMass, UFDensity: m.ufDensity, RakeTorque: m.rakeTorq,
 		BinPercent: m.binTPH / binCapacityTPH * 100, OreFactor: m.oreFactor,
+		MillBearingC: m.ti201, OilValvePct: dec(m.holding[RegHO101], holdingScales[RegHO101]),
 	}
 }

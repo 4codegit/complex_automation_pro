@@ -8,9 +8,9 @@ package plantsim
 // engineering value is raw × Scale.
 const (
 	// NumInputRegisters is the size of the FC4 area (sensors).
-	NumInputRegisters = 28
+	NumInputRegisters = 33
 	// NumHoldingRegisters is the size of the FC3/FC6 area (actuators + scenario).
-	NumHoldingRegisters = 9
+	NumHoldingRegisters = 10
 )
 
 // Input register offsets (FC4).
@@ -43,6 +43,11 @@ const (
 	RegWI501  = 25 // dry cake throughput, t/h, scale 0.01
 	RegTIT101 = 26 // pulp temperature, C, scale 0.1
 	RegSI101  = 27 // ore bin level, %, scale 0.1
+	RegTI101  = 28 // crusher bearing temperature, C, scale 0.1
+	RegTI201  = 29 // mill bearing temperature, C, scale 0.1
+	RegTI301  = 30 // flotation pulp temperature, C, scale 0.1
+	RegTI401  = 31 // rake drive bearing temperature, C, scale 0.1
+	RegTI501  = 32 // vacuum pump temperature, C, scale 0.1
 )
 
 // Holding register offsets (FC3 read, FC6 write).
@@ -54,6 +59,7 @@ const (
 	RegLC301  = 4 // tailgate, %, scale 0.1, write 0..100
 	RegFC401  = 5 // underflow pump speed, %, scale 0.1, write 0..100
 	RegHI501  = 6 // filter cycle time, s, scale 1, write 10..120
+	RegHO101  = 9 // oil station valve, %, scale 0.1, write 0..100
 	RegSIMCMD = 7 // scenario code, scale 1
 	RegSIMVAL = 8 // scenario value, scale 1
 )
@@ -64,10 +70,11 @@ var inputScales = [NumInputRegisters]float64{
 	1, 1, 0.01, 1, 1, 0.1, 0.001, 0.01, // 8..15
 	0.001, 0.01, 0.1, 0.01, 0.1, 0.1, 0.1, 0.1, // 16..23
 	0.01, 0.01, 0.1, 0.1, // 24..27
+	0.1, 0.1, 0.1, 0.1, 0.1, // 28..32 temperatures
 }
 
 var holdingScales = [NumHoldingRegisters]float64{
-	0.1, 0.1, 1, 1, 0.1, 0.1, 1, 1, 1, // 0..8
+	0.1, 0.1, 1, 1, 0.1, 0.1, 1, 1, 1, 0.1, // 0..9
 }
 
 // holdingWriteLimits bounds FC6 writes: [min, max] in raw counts, derived
@@ -82,6 +89,7 @@ var holdingWriteLimits = [NumHoldingRegisters][2]uint16{
 	{100, 1200}, // hi501: 10..120 s
 	{0, 255},    // simcmd
 	{0, 65535},  // simval (raw i16-like)
+	{0, 1000},   // ho101: 0..100 %
 }
 
 // Scenario codes written to SIMCMD (TZ §7.3).
@@ -95,4 +103,7 @@ const (
 	ScenarioUFPumpFail = 6 // underflow pump failure for SIMVAL seconds
 	ScenarioBinFill    = 7 // ore bin receives SIMVAL percent
 	ScenarioOreType    = 8 // ore type: 0 sulfide, 1 mixed, 2 oxide
+	// ScenarioMillOverload drives the mill to 150 % load for SIMVAL seconds:
+	// the bearing overheats past the tic201 interlock even with oil flowing.
+	ScenarioMillOverload = 9
 )

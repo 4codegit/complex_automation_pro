@@ -22,6 +22,7 @@ const SCENARIOS: ScenarioSpec[] = [
   { code: 6, label: 'Отказ насоса сгустителя', hint: 'рост постели и момента гребков', valuePlaceholder: 'длительность, с', defaultValue: 300 },
   { code: 7, label: 'Пополнение бункера', hint: '+% к уровню бункера', valuePlaceholder: '+30', defaultValue: 30 },
   { code: 8, label: 'Смена типа руды', hint: '0 сульфидная / 1 смешанная / 2 окисленная', valuePlaceholder: '0/1/2', defaultValue: 2 },
+  { code: 9, label: 'Пиковая нагрузка мельницы', hint: 'нагрев подшипника → проверка масляного интерлока tic201', valuePlaceholder: 'длительность, с', defaultValue: 240 },
 ];
 
 const ScenarioPanel: React.FC = () => {

@@ -274,6 +274,9 @@ var migrations = []string{
 	`ALTER TABLE control_loops ADD COLUMN flow_tag TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE control_loops ADD COLUMN kp_temp_factor REAL NOT NULL DEFAULT 0`,
 	`ALTER TABLE control_loops ADD COLUMN ki_flow_factor REAL NOT NULL DEFAULT 0`,
+	// Temperature interlock (oil station): PV at or above the threshold forces
+	// the loop output to maximum regardless of mode until the loop cools down.
+	`ALTER TABLE control_loops ADD COLUMN temp_interlock REAL NOT NULL DEFAULT 0`,
 }
 
 // Migrate applies pending migrations in a transaction.

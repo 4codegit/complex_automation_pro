@@ -10,6 +10,7 @@ interface LoopFaceplateProps {
 const stateLabel: Record<string, { text: string; cls: string }> = {
   ok: { text: 'норма', cls: 'text-ok' },
   watchdog: { text: 'потеря PV → ручной', cls: 'text-alarm' },
+  interlock: { text: 'ПЕРЕГРЕВ → масло 100%', cls: 'text-alarm animate-pulse' },
 };
 
 // LoopFaceplate is the operator panel for one supervisory loop (TZ §14): PV,
